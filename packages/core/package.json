@@ -1,0 +1,10 @@
+{
+  "name": "@browser-tools/core",
+  "version": "1.0.0",
+  "description": "Core utilities for browser tools",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.17.1"
+}

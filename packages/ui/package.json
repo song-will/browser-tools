@@ -1,0 +1,10 @@
+{
+  "name": "@browser-tools/ui",
+  "version": "1.0.0",
+  "description": "UI components for browser tools",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@10.17.1"
+}
