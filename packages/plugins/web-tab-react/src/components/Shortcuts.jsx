@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, Button, Input, Space, Popconfirm, Spin, Dropdown, theme, Modal, Form, Popover } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons'
 import { storageManager } from '../utils/storage'
+import { getFavicon } from '../utils/favicon'
 
 const { useToken } = theme
 
@@ -29,8 +30,10 @@ export default function Shortcuts() {
   const [draggedFromGroup, setDraggedFromGroup] = useState(null) // { groupId, itemId }
   const [editingGroupName, setEditingGroupName] = useState(null) // groupId
   const [groupNameInput, setGroupNameInput] = useState('')
+  const [iconLoading, setIconLoading] = useState(false)
   const scrollRef = useRef(null)
   const scrollTimeoutRef = useRef(null)
+  const urlDebounceTimerRef = useRef(null)
 
   useEffect(() => {
     loadShortcuts()
@@ -179,6 +182,54 @@ export default function Shortcuts() {
     setIsModalOpen(false)
     setEditingId(null)
     form.resetFields()
+    setIconLoading(false)
+    if (urlDebounceTimerRef.current) {
+      clearTimeout(urlDebounceTimerRef.current)
+      urlDebounceTimerRef.current = null
+    }
+  }
+
+  // 自动获取图标
+  const handleUrlChange = async (e) => {
+    const url = e.target.value.trim()
+    
+    // 清除之前的定时器
+    if (urlDebounceTimerRef.current) {
+      clearTimeout(urlDebounceTimerRef.current)
+    }
+
+    // 如果 URL 为空，清空图标
+    if (!url) {
+      form.setFieldsValue({ icon: '' })
+      return
+    }
+
+    // 验证 URL 格式
+    let finalUrl = url
+    if (!/^https?:\/\//i.test(finalUrl)) {
+      finalUrl = 'https://' + finalUrl
+    }
+
+    // 防抖：等待用户停止输入 800ms 后再获取图标
+    urlDebounceTimerRef.current = setTimeout(async () => {
+      try {
+        setIconLoading(true)
+        console.log('[Shortcuts] 开始自动获取图标，URL:', finalUrl)
+        
+        const iconUrl = await getFavicon(finalUrl)
+        
+        if (iconUrl) {
+          console.log('[Shortcuts] 图标获取成功:', iconUrl)
+          form.setFieldsValue({ icon: iconUrl })
+        } else {
+          console.log('[Shortcuts] 图标获取失败，保持当前值')
+        }
+      } catch (error) {
+        console.error('[Shortcuts] 获取图标出错:', error)
+      } finally {
+        setIconLoading(false)
+      }
+    }, 800)
   }
 
   const handleDragStart = (e, id) => {
@@ -743,13 +794,20 @@ export default function Shortcuts() {
             label="网址"
             rules={[{ required: true, message: '请输入网址' }]}
           >
-            <Input placeholder="网址 (例如: github.com)" />
+            <Input 
+              placeholder="网址 (例如: github.com)" 
+              onChange={handleUrlChange}
+            />
           </Form.Item>
           <Form.Item
             name="icon"
             label="图标 URL (可选)"
+            extra={iconLoading ? '正在自动获取图标...' : '输入网址后将自动获取图标'}
           >
-            <Input placeholder="图标 URL (可选)" />
+            <Input 
+              placeholder="图标 URL (可选，将自动填充)" 
+              suffix={iconLoading ? <Spin size="small" /> : null}
+            />
           </Form.Item>
         </Form>
       </Modal>
