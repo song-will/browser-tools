@@ -5,7 +5,8 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const manifestPath = join(__dirname, "../publishDir/manifest.json");
+// 更新根目录的 manifest.json（构建时会自动复制到 publishDir）
+const manifestPath = join(__dirname, "../manifest.json");
 
 /**
  * 递增版本号（patch 版本）

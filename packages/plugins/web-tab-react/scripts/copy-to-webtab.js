@@ -13,6 +13,7 @@ const __dirname = dirname(__filename);
 
 const sourceDir = join(__dirname, "../dist");
 const targetDir = join(__dirname, "../publishDir");
+const rootManifestPath = join(__dirname, "../manifest.json");
 
 // 确保目标目录存在
 if (!existsSync(targetDir)) {
@@ -47,20 +48,28 @@ function copyDistFiles() {
 
   console.log("[构建脚本] 开始复制文件到 publishDir 目录...");
 
-  // 复制所有文件（除了 manifest.json，保留原有的）
+  // 复制所有文件（除了 manifest.json，从根目录单独复制）
   const files = readdirSync(sourceDir);
   for (const file of files) {
     const srcPath = join(sourceDir, file);
     const destPath = join(targetDir, file);
 
-    // 跳过 manifest.json，保留 publishDir 目录中的原有版本
+    // 跳过 manifest.json，稍后从根目录复制
     if (file === "manifest.json") {
-      console.log("[构建脚本] 跳过 manifest.json（保留原有版本）");
       continue;
     }
 
     copyRecursive(srcPath, destPath);
     console.log(`[构建脚本] 已复制: ${file}`);
+  }
+
+  // 从根目录复制 manifest.json 到 publishDir
+  if (existsSync(rootManifestPath)) {
+    const destManifestPath = join(targetDir, "manifest.json");
+    copyFileSync(rootManifestPath, destManifestPath);
+    console.log("[构建脚本] 已复制 manifest.json（从根目录）");
+  } else {
+    console.warn("[构建脚本] 警告: 根目录的 manifest.json 不存在");
   }
 
   console.log("[构建脚本] 文件复制完成！");
