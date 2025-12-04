@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# publishDir下除了manifest.json都忽略
+publishDir/*
+!publishDir/manifest.json
+

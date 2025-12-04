@@ -7,6 +7,8 @@ import SearchBox from './components/SearchBox'
 import Shortcuts from './components/Shortcuts'
 import TodoList from './components/TodoList'
 import { storageManager } from './utils/storage'
+import nyBg from './assets/ny.png'
+import defaultVideo from './assets/video.mp4'
 import './App.css'
 
 // 按需加载 Settings 组件（非首屏必需）
@@ -17,45 +19,88 @@ function AppContent() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [backgroundStyle, setBackgroundStyle] = useState({})
   const [backgroundVideo, setBackgroundVideo] = useState('')
+  const [videoError, setVideoError] = useState(false)
 
-  const applyBackground = useCallback((bgSettings) => {
+  // 检查图片是否有效
+  const checkImageValid = useCallback((url) => {
+    return new Promise((resolve) => {
+      if (!url || !url.trim()) {
+        resolve(false)
+        return
+      }
+      const img = new Image()
+      img.onload = () => resolve(true)
+      img.onerror = () => resolve(false)
+      img.src = url
+    })
+  }, [])
+
+
+  const applyBackground = useCallback(async (bgSettings) => {
     const style = {}
+    setVideoError(false)
     
-    if (bgSettings.type === 'image' && bgSettings.image) {
-      style.backgroundImage = `url(${bgSettings.image})`
+    if (bgSettings.type === 'image') {
+      // 图片类型：如果有 URL 且有效，使用 URL；否则使用默认图片
+      const imageUrl = bgSettings.image?.trim()
+      let finalImageUrl = nyBg // 默认图片
+      
+      if (imageUrl) {
+        const isValid = await checkImageValid(imageUrl)
+        if (isValid) {
+          finalImageUrl = imageUrl
+        }
+      }
+      
+      style.backgroundImage = `url(${finalImageUrl})`
       style.backgroundSize = 'cover'
       style.backgroundPosition = 'center'
       style.backgroundRepeat = 'no-repeat'
       setBackgroundVideo('')
-    } else if (bgSettings.type === 'video' && bgSettings.video) {
-      // 视频背景通过单独的 video 元素处理
+    } else if (bgSettings.type === 'video') {
+      // 视频类型：如果有 URL，使用 URL；否则使用默认视频
+      // 如果 URL 无效，视频元素会触发 onerror，然后回退到默认视频
+      const videoUrl = bgSettings.video?.trim()
+      const finalVideoUrl = videoUrl || defaultVideo
+      
       style.backgroundColor = 'transparent'
-      setBackgroundVideo(bgSettings.video)
+      setBackgroundVideo(finalVideoUrl)
     } else {
-      style.backgroundColor = antdTheme.token?.colorBgContainer || '#ffffff'
+      // 默认使用图片背景
+      style.backgroundImage = `url(${nyBg})`
+      style.backgroundSize = 'cover'
+      style.backgroundPosition = 'center'
+      style.backgroundRepeat = 'no-repeat'
       setBackgroundVideo('')
     }
     
     setBackgroundStyle(style)
-  }, [antdTheme])
+  }, [checkImageValid])
 
   const loadBackground = useCallback(async () => {
     try {
       await storageManager.init()
       const bgSettings = await storageManager.get('background_settings')
       if (bgSettings) {
-        applyBackground(bgSettings)
+        await applyBackground(bgSettings)
       } else {
-        // 默认背景
-        setBackgroundStyle({ backgroundColor: antdTheme.token?.colorBgContainer || '#ffffff' })
-        setBackgroundVideo('')
+        // 默认背景：使用 ny.png
+        const defaultBgSettings = {
+          type: 'image',
+          image: ''
+        }
+        await applyBackground(defaultBgSettings)
       }
     } catch (error) {
       console.error('[App] Load background error:', error)
-      setBackgroundStyle({ backgroundColor: antdTheme.token?.colorBgContainer || '#ffffff' })
-      setBackgroundVideo('')
+      // 出错时也使用默认背景图
+      const defaultBgSettings = {
+        type: 'image',
+        image: ''
+      }
+      await applyBackground(defaultBgSettings)
     }
-  }, [applyBackground, antdTheme])
+  }, [applyBackground])
 
   useEffect(() => {
     // 禁用默认右键菜单
@@ -96,6 +141,13 @@ function AppContent() {
             playsInline
             className="fixed inset-0 w-full h-full object-cover z-0"
             style={{ pointerEvents: 'none' }}
+            onError={() => {
+              // 如果视频加载失败，且当前不是默认视频，则切换到默认视频
+              if (backgroundVideo !== defaultVideo && !videoError) {
+                setVideoError(true)
+                setBackgroundVideo(defaultVideo)
+              }
+            }}
           >
             <source src={backgroundVideo} type="video/mp4" />
           </video>

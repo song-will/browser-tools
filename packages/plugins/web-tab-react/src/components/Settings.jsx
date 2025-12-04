@@ -39,10 +39,11 @@ export default function Settings({ isOpen, onClose }) {
     }
   }
 
-  const handleSaveStorage = async (values) => {
+  const handleFinish = async (values) => {
     setLoading(true)
     
     try {
+      // 保存存储设置
       if (values.enableGithub) {
         if (!values.githubToken?.trim()) {
           message.error('请输入 GitHub Token')
@@ -57,23 +58,11 @@ export default function Settings({ isOpen, onClose }) {
         }
 
         await storageManager.setStorageConfig(config)
-        message.success('存储设置已保存')
       } else {
         await storageManager.setStorageConfig({ enableGithub: false })
-        message.success('存储设置已保存')
       }
-    } catch (error) {
-      console.error('[Settings] Save storage error:', error)
-      message.error('保存失败: ' + error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
 
-  const handleSaveBackground = async (values) => {
-    setLoading(true)
-    
-    try {
+      // 保存背景设置
       const bgSettings = {
         type: values.backgroundType,
         image: values.backgroundImage,
@@ -85,18 +74,13 @@ export default function Settings({ isOpen, onClose }) {
       // 触发背景更新事件
       window.dispatchEvent(new CustomEvent('backgroundChanged', { detail: bgSettings }))
       
-      message.success('背景设置已保存')
+      message.success('设置已保存')
     } catch (error) {
-      console.error('[Settings] Save background error:', error)
+      console.error('[Settings] Save error:', error)
       message.error('保存失败: ' + error.message)
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleFinish = async (values) => {
-    await handleSaveStorage(values)
-    await handleSaveBackground(values)
   }
 
   const handleCreateGist = async () => {
@@ -162,6 +146,8 @@ export default function Settings({ isOpen, onClose }) {
           body: {
             maxHeight: '70vh',
             overflowY: 'auto',
+            overflowX: 'hidden',
+            paddingRight: 8,
           }
         }}
       >
