@@ -1,4 +1,39 @@
+import { useState, useEffect } from 'react'
+import { Input, Segmented } from 'antd'
+import { SearchOutlined } from '@ant-design/icons'
+import { storageManager } from '../utils/storage'
+
 export default function SearchBox() {
+  const [searchEngine, setSearchEngine] = useState('google')
+
+  const saveSearchEngine = async (engine) => {
+    try {
+      await storageManager.set('search_engine', engine)
+    } catch (error) {
+      console.error('[SearchBox] Save search engine error:', error)
+    }
+  }
+
+  const handleEngineChange = (value) => {
+    setSearchEngine(value)
+    saveSearchEngine(value)
+  }
+
+  useEffect(() => {
+    const loadSearchEngine = async () => {
+      try {
+        await storageManager.init()
+        const saved = await storageManager.get('search_engine')
+        if (saved === 'bing' || saved === 'google') {
+          setSearchEngine(saved)
+        }
+      } catch (error) {
+        console.error('[SearchBox] Load search engine error:', error)
+      }
+    }
+    loadSearchEngine()
+  }, [])
+
   const handleSubmit = (e) => {
     const input = e.target.querySelector('input').value.trim()
     
@@ -17,35 +52,50 @@ export default function SearchBox() {
     }
   }
 
+  const getSearchUrl = () => {
+    return searchEngine === 'bing' 
+      ? 'https://www.bing.com/search'
+      : 'https://www.google.com/search'
+  }
+
+  const getPlaceholder = () => {
+    return searchEngine === 'bing'
+      ? '搜索 Bing 或输入网址...'
+      : '搜索 Google 或输入网址...'
+  }
+
   return (
-    <div className="w-full max-w-[600px]">
+    <div className="w-full max-w-[600px] flex flex-col items-center gap-3">
+      <Segmented
+        options={[
+          { label: 'Google', value: 'google' },
+          { label: 'Bing', value: 'bing' },
+        ]}
+        value={searchEngine}
+        onChange={handleEngineChange}
+        size="large"
+      />
       <form
         id="search-form"
-        action="https://www.google.com/search"
+        action={getSearchUrl()}
         method="GET"
         target="_blank"
         onSubmit={handleSubmit}
+        className="w-full"
       >
-        <input
-          type="text"
-          className="w-full px-6 py-4 text-base border-0 rounded-full shadow-lg outline-none text-left transition-all placeholder:opacity-60"
-          style={{
-            backgroundColor: 'var(--card-dark)',
-            color: 'var(--text-primary)',
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
-          }}
+        <Input
+          size="large"
+          prefix={<SearchOutlined />}
+          placeholder={getPlaceholder()}
           name="q"
-          placeholder="搜索 Google 或输入网址..."
           autoComplete="off"
-          onFocus={(e) => {
-            e.target.style.boxShadow = '0 4px 20px rgba(187, 134, 252, 0.3)'
-          }}
-          onBlur={(e) => {
-            e.target.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.3)'
+          style={{
+            borderRadius: 50,
+            height: 56,
+            fontSize: 16,
           }}
         />
       </form>
     </div>
   )
 }
-

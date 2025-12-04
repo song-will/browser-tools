@@ -1,14 +1,14 @@
 {
     "manifest_version": 3,
     "name": "WebTab - 我的新标签页",
-    "version": "1.0.0",
+    "version": "0.0.1",
     "description": "一个美观、实用、支持主题切换的新标签页，包含搜索、快捷方式和待办事项。",
     "icons": {},
     "action": {
       "default_title": "WebTab"
     },
     "chrome_url_overrides": {
-      "newtab": "newtab.html"
+      "newtab": "index.html"
     },
     "permissions": [
       "storage"

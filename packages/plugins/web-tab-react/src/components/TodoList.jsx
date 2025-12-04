@@ -1,78 +1,229 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { Card, Input, Checkbox, Space, theme, Spin, Button, Popconfirm } from 'antd'
+import { DeleteOutlined } from '@ant-design/icons'
+import { storageManager } from '../utils/storage'
 
-const initialTodos = [
-  { id: 1, text: '完成新标签页开发', completed: false },
-  { id: 2, text: '测试天气API', completed: false }
-]
+const { useToken } = theme
 
 export default function TodoList() {
-  const [todos, setTodos] = useState(initialTodos)
+  const { token } = useToken()
+  const [todos, setTodos] = useState([])
   const [inputValue, setInputValue] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  const scrollRef = useRef(null)
+  const scrollTimeoutRef = useRef(null)
 
-  const handleAdd = () => {
+  useEffect(() => {
+    loadTodos()
+  }, [])
+
+  useEffect(() => {
+    const scrollElement = scrollRef.current
+    if (!scrollElement) return
+
+    const handleScroll = () => {
+      scrollElement.classList.add('scrolling')
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+      scrollTimeoutRef.current = setTimeout(() => {
+        scrollElement.classList.remove('scrolling')
+      }, 1000)
+    }
+
+    scrollElement.addEventListener('scroll', handleScroll)
+    return () => {
+      scrollElement.removeEventListener('scroll', handleScroll)
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const loadTodos = async () => {
+    try {
+      await storageManager.init()
+      const saved = await storageManager.get('todos')
+      if (saved && Array.isArray(saved)) {
+        setTodos(saved)
+      } else {
+        setTodos([])
+      }
+    } catch (error) {
+      console.error('[TodoList] Load error:', error)
+      setTodos([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const saveTodos = async (newTodos) => {
+    try {
+      await storageManager.set('todos', newTodos)
+      setTodos(newTodos)
+    } catch (error) {
+      console.error('[TodoList] Save error:', error)
+    }
+  }
+
+  const handleAdd = async () => {
     const text = inputValue.trim()
     if (text) {
-      setTodos([...todos, { id: Date.now(), text, completed: false }])
+      const now = Date.now()
+      const newTodos = [{ 
+        id: now, 
+        text, 
+        completed: false,
+        createdAt: now
+      }, ...todos]
+      await saveTodos(newTodos)
       setInputValue('')
     }
   }
 
-  const handleToggle = (id) => {
-    setTodos(todos.map(todo =>
+  const handleToggle = async (id) => {
+    const newTodos = todos.map(todo =>
       todo.id === id ? { ...todo, completed: !todo.completed } : todo
-    ))
+    )
+    await saveTodos(newTodos)
+  }
+
+  const handleDelete = async (id) => {
+    const newTodos = todos.filter(todo => todo.id !== id)
+    await saveTodos(newTodos)
+    setDeleteConfirmId(null)
+  }
+
+  const formatTime = (timestamp) => {
+    if (!timestamp) return ''
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diff = now - date
+    
+    // 如果是今天，显示时间
+    if (diff < 24 * 60 * 60 * 1000 && date.getDate() === now.getDate()) {
+      return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    }
+    // 如果是今年，显示月日和时间
+    if (date.getFullYear() === now.getFullYear()) {
+      return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    }
+    // 否则显示完整日期
+    return date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
 
   return (
-    <div className="rounded-2xl p-5 shadow-md col-span-1" style={{ backgroundColor: 'var(--card-dark)' }}>
-      <h2 className="text-xl mb-4 flex items-center gap-2" style={{ color: 'var(--accent-color)' }}>
-        待办事项
-      </h2>
-      <ul className="list-none">
-        {todos.map((todo) => (
-          <li
-            key={todo.id}
-            className="flex items-center py-2 border-b"
-            style={{ borderBottomColor: 'rgba(255, 255, 255, 0.1)' }}
+    <Card 
+      title="待办事项" 
+      className="col-span-1"
+      styles={{
+        body: {
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '16px',
+        }
+      }}
+    >
+      <Spin spinning={loading}>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <Input
+            placeholder="输入任务后按回车添加..."
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onPressEnter={handleAdd}
+            style={{ width: '100%', flexShrink: 0, marginBottom: 16 }}
+          />
+          <div
+            ref={scrollRef}
+            className="custom-scrollbar"
+            style={{
+              maxHeight: '300px',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+            }}
           >
-            <input
-              type="checkbox"
-              className="mr-2.5"
-              checked={todo.completed}
-              onChange={() => handleToggle(todo.id)}
-            />
-            <span className={`flex-1 ${todo.completed ? 'line-through opacity-60' : ''}`}>
-              {todo.text}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <div className="flex mt-2.5">
-        <input
-          type="text"
-          className="flex-1 px-3 py-2 border-0 rounded"
-          style={{
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-            color: 'var(--text-primary)',
-          }}
-          placeholder="添加新任务..."
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyPress={(e) => {
-            if (e.key === 'Enter') {
-              handleAdd()
-            }
-          }}
-        />
-        <button
-          onClick={handleAdd}
-          className="ml-2 px-4 py-2 border-0 rounded text-white cursor-pointer"
-          style={{ backgroundColor: 'var(--accent-color)' }}
-        >
-          添加
-        </button>
-      </div>
-    </div>
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              {todos.map((todo) => (
+                <div
+                  key={todo.id}
+                  className="todo-item"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    paddingBottom: 8,
+                    paddingTop: 8,
+                    paddingLeft: 12,
+                    paddingRight: 12,
+                    marginLeft: -12,
+                    marginRight: -12,
+                    borderBottom: `1px solid ${token.colorBorder}`,
+                    borderRadius: 8,
+                  }}
+                  onMouseEnter={(e) => {
+                    const deleteBtn = e.currentTarget.querySelector('.todo-delete-btn')
+                    if (deleteBtn) deleteBtn.style.display = 'block'
+                  }}
+                  onMouseLeave={(e) => {
+                    const deleteBtn = e.currentTarget.querySelector('.todo-delete-btn')
+                    if (deleteBtn) deleteBtn.style.display = 'none'
+                  }}
+                >
+                  <Checkbox
+                    checked={todo.completed}
+                    onChange={() => handleToggle(todo.id)}
+                    style={{ marginTop: 2 }}
+                  />
+                  <div style={{ flex: 1, marginLeft: 8 }}>
+                    <div
+                      style={{
+                        textDecoration: todo.completed ? 'line-through' : 'none',
+                        opacity: todo.completed ? 0.6 : 1,
+                        color: token.colorText,
+                      }}
+                    >
+                      {todo.text}
+                    </div>
+                    {todo.createdAt && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: token.colorTextSecondary,
+                          marginTop: 4,
+                          opacity: 0.7,
+                        }}
+                      >
+                        {formatTime(todo.createdAt)}
+                      </div>
+                    )}
+                  </div>
+                  <Popconfirm
+                    title="确定要删除这个待办事项吗？"
+                    open={deleteConfirmId === todo.id}
+                    onConfirm={() => handleDelete(todo.id)}
+                    onCancel={() => setDeleteConfirmId(null)}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button
+                      className="todo-delete-btn"
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      size="small"
+                      onClick={() => setDeleteConfirmId(todo.id)}
+                      style={{
+                        display: 'none',
+                        opacity: 0.7,
+                      }}
+                    />
+                  </Popconfirm>
+                </div>
+              ))}
+            </Space>
+          </div>
+        </div>
+      </Spin>
+    </Card>
   )
 }
-

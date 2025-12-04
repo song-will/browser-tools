@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useTheme } from '../contexts/ThemeContext'
+import { theme } from 'antd'
+
+const { useToken } = theme
 
 export default function Header() {
-  const { theme, toggleTheme } = useTheme()
+  const { token } = useToken()
   const [time, setTime] = useState('00:00')
   const [date, setDate] = useState('加载中...')
 
@@ -29,21 +31,12 @@ export default function Header() {
 
   return (
     <header className="text-center pt-10 pb-5 px-5 relative">
-      <button
-        onClick={toggleTheme}
-        className="absolute top-5 right-5 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer shadow-md transition-all hover:scale-110"
-        style={{ backgroundColor: 'var(--card-dark)' }}
-      >
-        <i className={`fas ${theme === 'light-theme' ? 'fa-sun' : 'fa-moon'} text-xl`} style={{ color: 'var(--text-primary)' }}></i>
-      </button>
-      
-      <div className="text-6xl font-light mb-2" style={{ color: 'var(--text-primary)' }}>
+      <div style={{ fontSize: 60, fontWeight: 300, marginBottom: 8, color: token.colorText }}>
         {time}
       </div>
-      <div className="text-xl opacity-90" style={{ color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 20, opacity: 0.9, color: token.colorTextSecondary }}>
         {date}
       </div>
     </header>
   )
 }
-
