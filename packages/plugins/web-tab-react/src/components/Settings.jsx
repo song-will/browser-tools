@@ -29,7 +29,7 @@ export default function Settings({ isOpen, onClose }) {
         enableGithub: githubEnabled,
         githubToken: config?.token || '',
         githubGistId: config?.gistId || '',
-        backgroundType: bgSettings?.type || 'image',
+        backgroundType: bgSettings?.type || 'video',
         backgroundImage: bgSettings?.image || '',
         backgroundVideo: bgSettings?.video || '',
       })
@@ -75,6 +75,8 @@ export default function Settings({ isOpen, onClose }) {
       window.dispatchEvent(new CustomEvent('backgroundChanged', { detail: bgSettings }))
       
       message.success('设置已保存')
+      // 保存成功后自动关闭弹窗
+      onClose()
     } catch (error) {
       console.error('[Settings] Save error:', error)
       message.error('保存失败: ' + error.message)
@@ -144,9 +146,6 @@ export default function Settings({ isOpen, onClose }) {
         width={600}
         styles={{
           body: {
-            maxHeight: '70vh',
-            overflowY: 'auto',
-            overflowX: 'hidden',
             paddingRight: 8,
           }
         }}

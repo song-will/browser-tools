@@ -84,19 +84,19 @@ function AppContent() {
       if (bgSettings) {
         await applyBackground(bgSettings)
       } else {
-        // 默认背景：使用 ny.png
+        // 默认背景：使用视频
         const defaultBgSettings = {
-          type: 'image',
-          image: ''
+          type: 'video',
+          video: ''
         }
         await applyBackground(defaultBgSettings)
       }
     } catch (error) {
       console.error('[App] Load background error:', error)
-      // 出错时也使用默认背景图
+      // 出错时也使用默认背景视频
       const defaultBgSettings = {
-        type: 'image',
-        image: ''
+        type: 'video',
+        video: ''
       }
       await applyBackground(defaultBgSettings)
     }
