@@ -9,7 +9,6 @@
     "build:only": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "bump-version": "node scripts/bump-version.js",
     "create-zip": "node scripts/create-zip.js"
   },
   "dependencies": {

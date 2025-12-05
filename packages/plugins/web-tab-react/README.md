@@ -1,18 +1,209 @@
-# React + Vite
+# WebTab - 我的新标签页
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+一个美观、实用的 Chrome 浏览器新标签页扩展，使用 React + Vite 构建，提供搜索、快捷方式管理、待办事项等功能。
 
-Currently, two official plugins are available:
+## ✨ 功能特性
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### 🔍 搜索功能
+- 支持多种搜索引擎（Google、Bing 等）
+- 快速搜索栏，支持快捷键操作
 
-## React Compiler
+### 🔗 快捷方式管理
+- 添加、编辑、删除快捷方式
+- 支持快捷方式分组管理
+- 自定义图标和 URL
+- 拖拽排序功能
+- **逻辑删除**：删除的快捷方式保留在存储中，支持数据恢复和跨设备同步
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+### ✅ 待办事项
+- 添加、完成、删除待办事项
+- 实时保存和同步
+- **逻辑删除**：删除的待办事项保留在存储中，支持数据恢复和跨设备同步
 
-Note: This will impact Vite dev & build performances.
+### 🎨 个性化设置
+- **背景设置**：支持自定义图片或视频背景
+- **主题设置**：支持明暗主题切换
+- 响应式设计，适配不同屏幕尺寸
 
-## Expanding the ESLint configuration
+### ☁️ 数据同步
+- **本地存储**：使用 Chrome Storage API 存储数据
+- **GitHub Gist 云同步**（可选）：
+  - 自动备份到 GitHub Gist
+  - 支持跨设备数据同步
+  - 智能合并冲突解决
+  - 支持数据恢复
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 📊 操作日志
+- 记录所有操作历史
+- 方便追踪数据变更
+
+## 🛠️ 技术栈
+
+- **框架**：React 19 + Vite
+- **UI 库**：Ant Design 6
+- **样式**：Tailwind CSS
+- **构建工具**：Vite (rolldown)
+- **存储**：Chrome Storage API + GitHub Gist API
+
+## 📦 打包构建
+
+### 前置要求
+
+- Node.js >= 18
+- pnpm（推荐）或 npm/yarn
+
+### 安装依赖
+
+```bash
+pnpm install
+```
+
+### 开发模式
+
+```bash
+pnpm dev
+```
+
+启动开发服务器，支持热更新。
+
+### 构建生产版本
+
+```bash
+pnpm build
+```
+
+构建流程：
+1. **Vite 构建**：将 React 代码打包到 `dist` 目录
+2. **复制文件**：将构建产物复制到 `publishDir` 目录，并复制 `manifest.json`
+3. 构建产物位于 `publishDir` 目录
+
+### 仅构建（不复制文件）
+
+```bash
+pnpm build:only
+```
+
+只执行 Vite 构建，不执行文件复制步骤。
+
+### 创建扩展 ZIP 包
+
+```bash
+pnpm create-zip
+```
+
+将 `publishDir` 目录打包为 `extension.zip`，可直接用于 Chrome 扩展安装。
+
+### 完整打包流程
+
+```bash
+# 1. 构建项目
+pnpm build
+
+# 2. 创建 ZIP 包（可选）
+pnpm create-zip
+```
+
+## 🚀 使用方式
+
+### 方式一：开发模式安装
+
+1. 运行 `pnpm build` 构建项目
+2. 打开 Chrome 浏览器，访问 `chrome://extensions/`
+3. 开启"开发者模式"
+4. 点击"加载已解压的扩展程序"
+5. 选择项目的 `publishDir` 目录
+
+### 方式二：ZIP 包安装
+
+1. 运行 `pnpm build` 和 `pnpm create-zip` 创建 ZIP 包
+2. 打开 Chrome 浏览器，访问 `chrome://extensions/`
+3. 开启"开发者模式"
+4. 点击"加载已解压的扩展程序"
+5. 选择解压后的 `extension.zip` 文件（或解压后选择目录）
+
+### 使用扩展
+
+1. 安装完成后，打开新标签页即可看到 WebTab 界面
+2. 点击左下角的设置按钮进行个性化配置
+3. 在设置中可以：
+   - 配置背景（图片/视频）
+   - 切换主题
+   - 启用 GitHub Gist 云同步（需要 GitHub Personal Access Token）
+
+### GitHub Gist 云同步设置
+
+1. 在设置中启用"GitHub Gist 同步"
+2. 输入你的 GitHub Personal Access Token（需要 `gist` 权限）
+3. 首次同步会自动创建 Gist，后续会自动同步数据
+4. 点击"从 GitHub 同步"可以手动拉取远程数据并合并
+
+## 📁 项目结构
+
+```
+web-tab-react/
+├── src/
+│   ├── components/          # React 组件
+│   │   ├── Shortcuts.jsx    # 快捷方式组件
+│   │   ├── TodoList.jsx     # 待办事项组件
+│   │   ├── SearchBox.jsx    # 搜索框组件
+│   │   ├── Settings.jsx     # 设置面板
+│   │   └── ...
+│   ├── utils/
+│   │   └── storage.js      # 存储管理（支持逻辑删除和云同步）
+│   ├── contexts/
+│   │   └── ThemeContext.jsx # 主题上下文
+│   └── App.jsx             # 主应用组件
+├── scripts/
+│   ├── copy-to-webtab.js   # 构建后复制文件脚本
+│   └── create-zip.js      # 创建 ZIP 包脚本
+├── dist/                   # Vite 构建输出目录
+├── publishDir/             # 最终发布目录（用于安装扩展）
+├── manifest.json           # Chrome 扩展清单文件
+├── vite.config.js          # Vite 配置文件
+└── package.json            # 项目配置
+```
+
+## 🔧 开发说明
+
+### 代码规范
+
+- 使用 ESLint 进行代码检查：`pnpm lint`
+- 遵循 React Hooks 最佳实践
+- 使用函数式组件和 Hooks
+
+### 存储机制
+
+项目使用策略模式实现存储管理：
+
+- **ChromeStorageStrategy**：本地存储策略
+- **GitHubGistStrategy**：GitHub Gist 云存储策略
+- **CombinedStorageStrategy**：组合策略（本地 + 云同步）
+
+数据采用**逻辑删除**机制：
+- 删除操作不会真正移除数据，而是标记 `deleted: true` 和 `deletedAt` 时间戳
+- 显示时过滤已删除的数据
+- 支持跨设备同步时的智能合并和恢复
+
+### 调试
+
+在开发环境下，存储管理器已挂载到 `window.storageManager`，可在浏览器控制台使用：
+
+```javascript
+// 查看所有存储数据
+await storageManager.debug()
+
+// 手动同步到 GitHub
+await storageManager.syncToGithub()
+
+// 从 GitHub 同步
+await storageManager.syncFromGithub()
+```
+
+## 📝 许可证
+
+本项目为私有项目。
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request。
+
