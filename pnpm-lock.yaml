@@ -15,6 +15,9 @@ importers:
       '@ant-design/icons':
         specifier: ^6.1.0
         version: 6.1.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@browser-tools/core':
+        specifier: workspace:*
+        version: link:../../core
       antd:
         specifier: ^6.0.1
         version: 6.0.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)

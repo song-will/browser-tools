@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "Core utilities for browser tools",
   "main": "index.js",
+  "type": "module",
+  "module": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
   "keywords": [],
   "author": "",
   "license": "MIT",
