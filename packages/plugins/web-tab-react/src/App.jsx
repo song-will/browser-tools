@@ -109,9 +109,28 @@ function AppContent() {
     }
     document.addEventListener('contextmenu', handleContextMenu)
 
-    // 异步加载背景
+    // 异步加载背景和自动同步
     ;(async () => {
       await loadBackground()
+      
+      // 检查同步功能是否开启，如果开启则自动同步
+      try {
+        await storageManager.init()
+        const config = await storageManager.getStorageConfig()
+        if (config?.enableGithub && config?.token && config?.gistId) {
+          console.log('[App] 检测到同步功能已开启，开始自动同步...')
+          try {
+            await storageManager.syncFromGithub()
+            console.log('[App] 自动同步完成')
+            // 触发页面刷新（通过事件）
+            window.dispatchEvent(new CustomEvent('dataSynced'))
+          } catch (error) {
+            console.error('[App] 自动同步失败:', error)
+          }
+        }
+      } catch (error) {
+        console.error('[App] 检查同步配置失败:', error)
+      }
     })()
     
     // 监听背景变化事件
