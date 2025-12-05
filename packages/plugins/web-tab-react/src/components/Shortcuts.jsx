@@ -3,6 +3,8 @@ import { Card, Button, Input, Space, Popconfirm, Spin, Dropdown, theme, Modal, F
 import { PlusOutlined, EditOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons'
 import { storageManager } from '../utils/storage'
 import { getFavicon } from '../utils/favicon'
+import { uuidv4 } from '../utils/index'
+import { logOperation } from '../utils/operationLog'
 
 const { useToken } = theme
 
@@ -82,8 +84,26 @@ export default function Shortcuts() {
 
   const saveShortcuts = async (newShortcuts) => {
     try {
-      await storageManager.set('shortcuts', newShortcuts)
-      setShortcuts(newShortcuts)
+      const now = Date.now()
+      // 为所有快捷方式和组添加/更新 updatedAt 字段
+      const shortcutsWithTimestamp = newShortcuts.map(s => {
+        if (s.isGroup) {
+          return {
+            ...s,
+            updatedAt: now,
+            items: s.items.map(item => ({
+              ...item,
+              updatedAt: item.updatedAt || now
+            }))
+          }
+        }
+        return {
+          ...s,
+          updatedAt: s.updatedAt || now
+        }
+      })
+      await storageManager.set('shortcuts', shortcutsWithTimestamp)
+      setShortcuts(shortcutsWithTimestamp)
     } catch (error) {
       console.error('[Shortcuts] Save error:', error)
     }
@@ -106,11 +126,24 @@ export default function Shortcuts() {
   }
 
   const handleDelete = async (id) => {
+    const deletedItem = shortcuts.find(s => s.id === id)
     const newShortcuts = shortcuts.filter(s => s.id !== id)
     await saveShortcuts(newShortcuts)
+    
+    if (deletedItem) {
+      const logType = deletedItem.isGroup ? 'delete_group' : 'delete_shortcut'
+      await logOperation(logType, {
+        id: deletedItem.id,
+        name: deletedItem.name || (deletedItem.isGroup ? '组' : '快捷方式'),
+        isGroup: deletedItem.isGroup
+      })
+    }
   }
 
   const handleDeleteFromGroup = async (groupId, itemId) => {
+    const group = shortcuts.find(s => s.id === groupId && s.isGroup)
+    const deletedItem = group?.items.find(item => item.id === itemId)
+    
     const newShortcuts = shortcuts.map(s => {
       if (s.id === groupId && s.isGroup) {
         const newItems = s.items.filter(item => item.id !== itemId)
@@ -126,6 +159,14 @@ export default function Shortcuts() {
       return s
     }).filter(Boolean)
     await saveShortcuts(newShortcuts)
+    
+    if (deletedItem) {
+      await logOperation('remove_from_group', {
+        groupId,
+        itemId: deletedItem.id,
+        itemName: deletedItem.name
+      })
+    }
   }
 
   const handleDeleteClick = (id) => {
@@ -153,10 +194,18 @@ export default function Shortcuts() {
       let newShortcuts
       if (editingId === null) {
         // 添加新快捷方式
-        const newId = Math.max(...shortcuts.map(s => s.id), 0) + 1
-        newShortcuts = [...shortcuts, { id: newId, name: name.trim(), url: finalUrl, icon: icon?.trim() || defaultIcon }]
+        const newId = uuidv4()
+        const newShortcut = { id: newId, name: name.trim(), url: finalUrl, icon: icon?.trim() || defaultIcon }
+        newShortcuts = [...shortcuts, newShortcut]
+        await saveShortcuts(newShortcuts)
+        await logOperation('add_shortcut', {
+          id: newId,
+          name: name.trim(),
+          url: finalUrl
+        })
       } else {
         // 编辑现有快捷方式
+        const oldItem = shortcuts.find(s => s.id === editingId)
         newShortcuts = shortcuts.map(s => {
           if (s.id === editingId) {
             if (s.isGroup) {
@@ -167,9 +216,18 @@ export default function Shortcuts() {
           }
           return s
         })
+        await saveShortcuts(newShortcuts)
+        if (oldItem && !oldItem.isGroup) {
+          await logOperation('edit_shortcut', {
+            id: editingId,
+            oldName: oldItem.name,
+            newName: name.trim(),
+            oldUrl: oldItem.url,
+            newUrl: finalUrl
+          })
+        }
       }
 
-      await saveShortcuts(newShortcuts)
       setIsModalOpen(false)
       setEditingId(null)
       form.resetFields()
@@ -304,7 +362,7 @@ export default function Shortcuts() {
 
     if (targetItem.isGroup) {
       // 拖到组上，加入组
-      const draggedItemCopy = { ...draggedItem }
+      const draggedItemCopy = { ...draggedItem, id: draggedItem.id || uuidv4() }
       newShortcuts = newShortcuts.map(s => {
         if (s.id === targetId) {
           return { ...s, items: [...s.items, draggedItemCopy] }
@@ -315,11 +373,18 @@ export default function Shortcuts() {
       if (!draggedFromGroup) {
         newShortcuts = newShortcuts.filter(s => s.id !== draggedId)
       }
+      await saveShortcuts(newShortcuts)
+      await logOperation('add_to_group', {
+        groupId: targetId,
+        groupName: targetItem.name || '组',
+        itemId: draggedItemCopy.id,
+        itemName: draggedItemCopy.name
+      })
     } else {
       // 拖到单个快捷方式上，形成组
-      const newGroupId = Math.max(...newShortcuts.map(s => s.id), 0) + 1
-      const draggedItemCopy = { ...draggedItem }
-      const targetItemCopy = { ...targetItem }
+      const newGroupId = uuidv4()
+      const draggedItemCopy = { ...draggedItem, id: draggedItem.id || uuidv4() }
+      const targetItemCopy = { ...targetItem, id: targetItem.id || uuidv4() }
       
       newShortcuts = newShortcuts.map(s => {
         if (s.id === targetId) {
@@ -335,9 +400,16 @@ export default function Shortcuts() {
       if (!draggedFromGroup) {
         newShortcuts = newShortcuts.filter(s => s.id !== draggedId)
       }
+      await saveShortcuts(newShortcuts)
+      await logOperation('create_group', {
+        groupId: newGroupId,
+        items: [
+          { id: targetItemCopy.id, name: targetItemCopy.name },
+          { id: draggedItemCopy.id, name: draggedItemCopy.name }
+        ]
+      })
     }
 
-    await saveShortcuts(newShortcuts)
     setDraggedId(null)
     setDraggedFromGroup(null)
   }
@@ -356,6 +428,7 @@ export default function Shortcuts() {
   }
 
   const handleGroupNameChange = async (groupId, newName) => {
+    const oldGroup = shortcuts.find(s => s.id === groupId && s.isGroup)
     const newShortcuts = shortcuts.map(s => {
       if (s.id === groupId && s.isGroup) {
         return { ...s, name: newName.trim() || null }
@@ -363,6 +436,15 @@ export default function Shortcuts() {
       return s
     })
     await saveShortcuts(newShortcuts)
+    
+    if (oldGroup) {
+      await logOperation('edit_group_name', {
+        groupId,
+        oldName: oldGroup.name || '组',
+        newName: newName.trim() || '组'
+      })
+    }
+    
     setEditingGroupName(null)
     setGroupNameInput('')
   }
@@ -741,8 +823,14 @@ export default function Shortcuts() {
                     }).filter(Boolean)
                     
                     // 添加到主列表
-                    newShortcuts.push({ ...draggedItem })
+                    const draggedItemWithId = { ...draggedItem, id: draggedItem.id || uuidv4() }
+                    newShortcuts.push(draggedItemWithId)
                     await saveShortcuts(newShortcuts)
+                    await logOperation('remove_from_group', {
+                      groupId: draggedFromGroup.groupId,
+                      itemId: draggedItemWithId.id,
+                      itemName: draggedItemWithId.name
+                    })
                   }
                 }
                 setDraggedId(null)

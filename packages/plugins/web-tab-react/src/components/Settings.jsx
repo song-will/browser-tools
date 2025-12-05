@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Modal, Form, Input, Button, Switch, Select, message, Tag, Space, Divider } from 'antd'
-import { SettingOutlined } from '@ant-design/icons'
+import { Modal, Form, Input, Button, Switch, Select, message, Tag, Space, Divider, Tabs, Table, Popconfirm } from 'antd'
+import { SettingOutlined, SyncOutlined, DeleteOutlined } from '@ant-design/icons'
 import { storageManager } from '../utils/storage'
+import { getOperationLogs, clearOperationLogs } from '../utils/operationLog'
 
 const { Option } = Select
 
@@ -10,6 +11,10 @@ export default function Settings({ isOpen, onClose }) {
   const [loading, setLoading] = useState(false)
   const [enableGithub, setEnableGithub] = useState(false)
   const [creatingGist, setCreatingGist] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [activeTab, setActiveTab] = useState('storage')
+  const [operationLogs, setOperationLogs] = useState([])
+  const [loadingLogs, setLoadingLogs] = useState(false)
   const githubToken = Form.useWatch('githubToken', form)
 
   useEffect(() => {
@@ -131,6 +136,51 @@ export default function Settings({ isOpen, onClose }) {
     }
   }
 
+  const handleSyncFromGithub = async () => {
+    setSyncing(true)
+    try {
+      const result = await storageManager.syncFromGithub()
+      message.success(`同步成功！快捷方式: ${result.shortcuts.merged} 条，待办事项: ${result.todos.merged} 条`)
+      // 触发页面刷新（通过事件）
+      window.dispatchEvent(new CustomEvent('dataSynced'))
+    } catch (error) {
+      console.error('[Settings] Sync error:', error)
+      message.error('同步失败: ' + error.message)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const loadOperationLogs = async () => {
+    setLoadingLogs(true)
+    try {
+      const logs = await getOperationLogs()
+      setOperationLogs(logs)
+    } catch (error) {
+      console.error('[Settings] Load logs error:', error)
+      message.error('加载操作日志失败')
+    } finally {
+      setLoadingLogs(false)
+    }
+  }
+
+  const handleClearLogs = async () => {
+    try {
+      await clearOperationLogs()
+      setOperationLogs([])
+      message.success('操作日志已清空')
+    } catch (error) {
+      console.error('[Settings] Clear logs error:', error)
+      message.error('清空日志失败')
+    }
+  }
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'logs') {
+      loadOperationLogs()
+    }
+  }, [isOpen, activeTab])
+
   return (
     <>
       <Modal
@@ -143,20 +193,28 @@ export default function Settings({ isOpen, onClose }) {
         open={isOpen}
         onCancel={onClose}
         footer={null}
-        width={600}
+        width={640}
         styles={{
           body: {
             paddingRight: 8,
           }
         }}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleFinish}
-        >
-          {/* 存储设置 */}
-          <div style={{ marginBottom: 24 }}>
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'storage',
+              label: '存储设置',
+              children: (
+                <Form
+                  form={form}
+                  layout="vertical"
+                  onFinish={handleFinish}
+                >
+                  {/* 存储设置 */}
+                  <div style={{ marginBottom: 24 }}>
             <h3 style={{ marginBottom: 16, fontSize: 16, fontWeight: 500 }}>存储设置</h3>
             
             <div style={{ 
@@ -165,9 +223,27 @@ export default function Settings({ isOpen, onClose }) {
               borderRadius: 8,
               backgroundColor: 'rgba(0, 0, 0, 0.02)'
             }}>
-              <Space>
-                <span style={{ fontWeight: 500 }}>Chrome Storage</span>
-                <Tag color="success">默认启用</Tag>
+              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                <Space>
+                  <span style={{ fontWeight: 500 }}>Chrome Storage</span>
+                  <Tag color="success">默认启用</Tag>
+                </Space>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={async () => {
+                    try {
+                      await storageManager.debug()
+                      message.info('调试信息已输出到控制台，请按 F12 查看')
+                    } catch (error) {
+                      console.error('[Settings] Debug error:', error)
+                      message.error('调试失败: ' + error.message)
+                    }
+                  }}
+                  style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                >
+                  查看存储数据
+                </Button>
               </Space>
               <div style={{ fontSize: 12, color: 'rgba(0, 0, 0, 0.45)', marginTop: 4 }}>
                 数据将立即保存到本地 Chrome Storage，快速可靠
@@ -180,6 +256,7 @@ export default function Settings({ isOpen, onClose }) {
             >
               <Space>
                 <Switch 
+                  checked={enableGithub}
                   onChange={(checked) => {
                     setEnableGithub(checked)
                     form.setFieldValue('enableGithub', checked)
@@ -237,6 +314,23 @@ export default function Settings({ isOpen, onClose }) {
                 disabled={!enableGithub}
               />
             </Form.Item>
+
+            {enableGithub && (
+              <Form.Item>
+                <Button
+                  type="primary"
+                  icon={<SyncOutlined />}
+                  onClick={handleSyncFromGithub}
+                  loading={syncing}
+                  block
+                >
+                  立即同步
+                </Button>
+                <div style={{ fontSize: 12, color: 'rgba(0, 0, 0, 0.45)', marginTop: 4 }}>
+                  从 GitHub Gist 拉取最新数据并合并到本地
+                </div>
+              </Form.Item>
+            )}
           </div>
 
           <Divider />
@@ -285,12 +379,103 @@ export default function Settings({ isOpen, onClose }) {
             </Form.Item>
           </div>
 
-          <Form.Item style={{ marginTop: 24, marginBottom: 0 }}>
-            <Button type="primary" htmlType="submit" block loading={loading}>
-              保存设置
-            </Button>
-          </Form.Item>
-        </Form>
+                  <Form.Item style={{ marginTop: 24, marginBottom: 0 }}>
+                    <Button type="primary" htmlType="submit" block loading={loading}>
+                      保存设置
+                    </Button>
+                  </Form.Item>
+                </Form>
+              )
+            },
+            {
+              key: 'logs',
+              label: '操作日志',
+              children: (
+                <div>
+                  <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 14, color: 'rgba(0, 0, 0, 0.45)' }}>
+                      共 {operationLogs.length} 条记录
+                    </span>
+                    <Popconfirm
+                      title="确定要清空所有操作日志吗？"
+                      onConfirm={handleClearLogs}
+                      okText="确定"
+                      cancelText="取消"
+                    >
+                      <Button
+                        type="link"
+                        danger
+                        icon={<DeleteOutlined />}
+                        size="small"
+                      >
+                        清空日志
+                      </Button>
+                    </Popconfirm>
+                  </div>
+                  <Table
+                    dataSource={operationLogs}
+                    loading={loadingLogs}
+                    pagination={{ pageSize: 20 }}
+                    scroll={{ y: 400 }}
+                    columns={[
+                      {
+                        title: '时间',
+                        dataIndex: 'timestamp',
+                        key: 'timestamp',
+                        width: 160,
+                        render: (timestamp) => {
+                          if (!timestamp) return '-'
+                          const date = new Date(timestamp)
+                          return date.toLocaleString('zh-CN')
+                        }
+                      },
+                      {
+                        title: '操作类型',
+                        dataIndex: 'type',
+                        key: 'type',
+                        width: 120,
+                        render: (type) => {
+                          const typeMap = {
+                            'add_shortcut': '添加快捷方式',
+                            'edit_shortcut': '编辑快捷方式',
+                            'delete_shortcut': '删除快捷方式',
+                            'create_group': '创建组',
+                            'edit_group_name': '编辑组名',
+                            'delete_group': '删除组',
+                            'add_to_group': '添加到组',
+                            'remove_from_group': '从组移除',
+                            'add_todo': '添加待办',
+                            'toggle_todo': '切换待办状态',
+                            'delete_todo': '删除待办'
+                          }
+                          return typeMap[type] || type
+                        }
+                      },
+                      {
+                        title: 'IP',
+                        dataIndex: 'ip',
+                        key: 'ip',
+                        width: 110
+                      },
+                      {
+                        title: '客户端',
+                        dataIndex: 'client',
+                        key: 'client',
+                        width: 140,
+                        render: (client) => {
+                          if (!client) return '-'
+                          return `${client.browser || '未知'} / ${client.platform || '未知'}`
+                        }
+                      }
+                    ]}
+                    rowKey="id"
+                    size="small"
+                  />
+                </div>
+              )
+            }
+          ]}
+        />
       </Modal>
     </>
   )

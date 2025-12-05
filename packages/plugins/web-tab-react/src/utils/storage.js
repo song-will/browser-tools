@@ -116,6 +116,41 @@ class ChromeStorageStrategy extends StorageStrategy {
       }
     })
   }
+
+  /**
+   * 获取所有存储的键值对
+   */
+  async getAll() {
+    return new Promise((resolve, reject) => {
+      if (typeof chrome !== 'undefined' && chrome.storage) {
+        chrome.storage.local.get(null, (result) => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError)
+          } else {
+            resolve(result || {})
+          }
+        })
+      } else {
+        // 降级到 localStorage
+        try {
+          const allData = {}
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i)
+            if (key) {
+              try {
+                allData[key] = JSON.parse(localStorage.getItem(key))
+              } catch {
+                allData[key] = localStorage.getItem(key)
+              }
+            }
+          }
+          resolve(allData)
+        } catch (error) {
+          reject(error)
+        }
+      }
+    })
+  }
 }
 
 /**
@@ -467,10 +502,245 @@ class StorageManager {
       await this.strategy.flushSyncQueue()
     }
   }
+
+  /**
+   * 从 GitHub Gist 同步数据并合并
+   */
+  async syncFromGithub() {
+    if (!this.strategy.githubGist) {
+      throw new Error('GitHub Gist 未启用，请先在设置中启用')
+    }
+
+    console.log('[Storage] 开始从 GitHub Gist 同步数据')
+    const now = Date.now()
+
+    try {
+      // 从 GitHub Gist 获取数据
+      const remoteShortcuts = await this.strategy.githubGist.get('shortcuts')
+      const remoteTodos = await this.strategy.githubGist.get('todos')
+
+      // 获取本地数据
+      const localShortcuts = await this.get('shortcuts') || []
+      const localTodos = await this.get('todos') || []
+
+      // 合并快捷方式
+      const mergedShortcuts = this.mergeShortcuts(localShortcuts, remoteShortcuts || [], now)
+      
+      // 合并待办事项
+      const mergedTodos = this.mergeTodos(localTodos, remoteTodos || [], now)
+
+      // 保存合并后的数据
+      await this.set('shortcuts', mergedShortcuts)
+      await this.set('todos', mergedTodos)
+
+      console.log('[Storage] 同步完成')
+      console.log('[Storage] 快捷方式: 本地', localShortcuts.length, '远程', remoteShortcuts?.length || 0, '合并后', mergedShortcuts.length)
+      console.log('[Storage] 待办事项: 本地', localTodos.length, '远程', remoteTodos?.length || 0, '合并后', mergedTodos.length)
+
+      return {
+        shortcuts: {
+          local: localShortcuts.length,
+          remote: remoteShortcuts?.length || 0,
+          merged: mergedShortcuts.length
+        },
+        todos: {
+          local: localTodos.length,
+          remote: remoteTodos?.length || 0,
+          merged: mergedTodos.length
+        }
+      }
+    } catch (error) {
+      console.error('[Storage] 从 GitHub Gist 同步失败:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 合并快捷方式数据
+   */
+  mergeShortcuts(local, remote, now) {
+    const mergedMap = new Map()
+
+    // 先添加本地数据
+    local.forEach(item => {
+      mergedMap.set(item.id, {
+        ...item,
+        updatedAt: item.updatedAt || now
+      })
+    })
+
+    // 合并远程数据
+    remote.forEach(item => {
+      const localItem = mergedMap.get(item.id)
+      
+      if (!localItem) {
+        // ID不同，直接添加
+        mergedMap.set(item.id, {
+          ...item,
+          updatedAt: item.updatedAt || now
+        })
+      } else {
+        // ID相同，比较内容
+        const localContent = JSON.stringify({ ...localItem, updatedAt: undefined })
+        const remoteContent = JSON.stringify({ ...item, updatedAt: undefined })
+        
+        if (localContent !== remoteContent) {
+          // 内容不同，比较时间戳
+          const localTime = localItem.updatedAt || 0
+          const remoteTime = item.updatedAt || 0
+          
+          if (remoteTime > localTime) {
+            // 远程更新，使用远程数据
+            mergedMap.set(item.id, {
+              ...item,
+              updatedAt: now
+            })
+          } else {
+            // 本地更新，保持本地数据，但更新时间戳
+            mergedMap.set(item.id, {
+              ...localItem,
+              updatedAt: now
+            })
+          }
+        } else {
+          // 内容相同，保留本地版本，更新时间戳
+          mergedMap.set(item.id, {
+            ...localItem,
+            updatedAt: now
+          })
+        }
+      }
+    })
+
+    return Array.from(mergedMap.values())
+  }
+
+  /**
+   * 合并待办事项数据
+   */
+  mergeTodos(local, remote, now) {
+    const mergedMap = new Map()
+
+    // 先添加本地数据
+    local.forEach(item => {
+      mergedMap.set(item.id, {
+        ...item,
+        updatedAt: item.updatedAt || now
+      })
+    })
+
+    // 合并远程数据
+    remote.forEach(item => {
+      const localItem = mergedMap.get(item.id)
+      
+      if (!localItem) {
+        // ID不同，直接添加
+        mergedMap.set(item.id, {
+          ...item,
+          updatedAt: item.updatedAt || now
+        })
+      } else {
+        // ID相同，比较内容
+        const localContent = JSON.stringify({ ...localItem, updatedAt: undefined })
+        const remoteContent = JSON.stringify({ ...item, updatedAt: undefined })
+        
+        if (localContent !== remoteContent) {
+          // 内容不同，比较时间戳
+          const localTime = localItem.updatedAt || 0
+          const remoteTime = item.updatedAt || 0
+          
+          if (remoteTime > localTime) {
+            // 远程更新，使用远程数据
+            mergedMap.set(item.id, {
+              ...item,
+              updatedAt: now
+            })
+          } else {
+            // 本地更新，保持本地数据，但更新时间戳
+            mergedMap.set(item.id, {
+              ...localItem,
+              updatedAt: now
+            })
+          }
+        } else {
+          // 内容相同，保留本地版本，更新时间戳
+          mergedMap.set(item.id, {
+            ...localItem,
+            updatedAt: now
+          })
+        }
+      }
+    })
+
+    return Array.from(mergedMap.values())
+  }
+
+  /**
+   * 调试方法：输出所有存储数据
+   */
+  async debug() {
+    try {
+      console.group('[Storage Debug] 存储数据调试信息')
+      
+      // 获取所有存储数据
+      const chromeStorage = new ChromeStorageStrategy()
+      const allData = await chromeStorage.getAll()
+      
+      console.log('[Storage Debug] 所有存储的键值对:', allData)
+      console.table(allData)
+      
+      // 显示存储配置
+      const config = await this.getStorageConfig()
+      console.log('[Storage Debug] 存储配置:', config)
+      
+      // 显示 GitHub Gist 状态
+      if (this.strategy.githubGist) {
+        console.log('[Storage Debug] GitHub Gist 已启用')
+        console.log('[Storage Debug] Gist ID:', this.strategy.githubGist.gistId)
+        console.log('[Storage Debug] 待同步队列大小:', this.strategy.syncQueue.size)
+        if (this.strategy.syncQueue.size > 0) {
+          console.log('[Storage Debug] 待同步队列:', Array.from(this.strategy.syncQueue.entries()))
+        }
+      } else {
+        console.log('[Storage Debug] GitHub Gist 未启用')
+      }
+      
+      // 显示常用数据
+      const shortcuts = await this.get('shortcuts')
+      const todos = await this.get('todos')
+      const bgSettings = await this.get('background_settings')
+      
+      console.log('[Storage Debug] 快捷方式数量:', shortcuts?.length || 0)
+      console.log('[Storage Debug] 待办事项数量:', todos?.length || 0)
+      console.log('[Storage Debug] 背景设置:', bgSettings)
+      
+      console.groupEnd()
+      
+      return {
+        allData,
+        config,
+        githubGistEnabled: !!this.strategy.githubGist,
+        gistId: this.strategy.githubGist?.gistId || null,
+        syncQueueSize: this.strategy.syncQueue.size,
+        shortcutsCount: shortcuts?.length || 0,
+        todosCount: todos?.length || 0,
+        bgSettings
+      }
+    } catch (error) {
+      console.error('[Storage Debug] 调试失败:', error)
+      throw error
+    }
+  }
 }
 
 // 导出单例
 export const storageManager = new StorageManager()
+
+// 在开发环境下将 storageManager 挂载到 window 对象，方便调试
+if (typeof window !== 'undefined') {
+  window.storageManager = storageManager
+  console.log('[Storage Debug] 存储管理器已挂载到 window.storageManager，可在控制台使用 storageManager.debug() 查看所有存储数据')
+}
 
 // 导出策略类（用于测试或扩展）
 export { StorageStrategy, ChromeStorageStrategy, GitHubGistStrategy, CombinedStorageStrategy, StorageManager }

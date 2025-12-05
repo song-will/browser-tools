@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { Card, Input, Checkbox, Space, theme, Spin, Button, Popconfirm } from 'antd'
 import { DeleteOutlined } from '@ant-design/icons'
 import { storageManager } from '../utils/storage'
+import { uuidv4 } from '../utils/index'
+import { logOperation } from '../utils/operationLog'
 
 const { useToken } = theme
 
@@ -60,8 +62,14 @@ export default function TodoList() {
 
   const saveTodos = async (newTodos) => {
     try {
-      await storageManager.set('todos', newTodos)
-      setTodos(newTodos)
+      const now = Date.now()
+      // 为所有待办添加/更新 updatedAt 字段
+      const todosWithTimestamp = newTodos.map(todo => ({
+        ...todo,
+        updatedAt: todo.updatedAt || now
+      }))
+      await storageManager.set('todos', todosWithTimestamp)
+      setTodos(todosWithTimestamp)
     } catch (error) {
       console.error('[TodoList] Save error:', error)
     }
@@ -71,27 +79,52 @@ export default function TodoList() {
     const text = inputValue.trim()
     if (text) {
       const now = Date.now()
+      const newId = uuidv4()
       const newTodos = [{ 
-        id: now, 
+        id: newId, 
         text, 
         completed: false,
-        createdAt: now
+        createdAt: now,
+        updatedAt: now
       }, ...todos]
       await saveTodos(newTodos)
+      await logOperation('add_todo', {
+        id: newId,
+        text
+      })
       setInputValue('')
     }
   }
 
   const handleToggle = async (id) => {
-    const newTodos = todos.map(todo =>
-      todo.id === id ? { ...todo, completed: !todo.completed } : todo
+    const todo = todos.find(t => t.id === id)
+    const now = Date.now()
+    const newTodos = todos.map(t =>
+      t.id === id ? { ...t, completed: !t.completed, updatedAt: now } : t
     )
     await saveTodos(newTodos)
+    
+    if (todo) {
+      await logOperation('toggle_todo', {
+        id,
+        text: todo.text,
+        completed: !todo.completed
+      })
+    }
   }
 
   const handleDelete = async (id) => {
+    const deletedTodo = todos.find(todo => todo.id === id)
     const newTodos = todos.filter(todo => todo.id !== id)
     await saveTodos(newTodos)
+    
+    if (deletedTodo) {
+      await logOperation('delete_todo', {
+        id,
+        text: deletedTodo.text
+      })
+    }
+    
     setDeleteConfirmId(null)
   }
 
