@@ -518,10 +518,12 @@ class StorageManager {
       // 从 GitHub Gist 获取数据
       const remoteShortcuts = await this.strategy.githubGist.get('shortcuts')
       const remoteTodos = await this.strategy.githubGist.get('todos')
+      const remoteLogs = await this.strategy.githubGist.get('operation_logs')
 
       // 获取本地数据
       const localShortcuts = await this.get('shortcuts') || []
       const localTodos = await this.get('todos') || []
+      const localLogs = await this.get('operation_logs') || []
 
       // 合并快捷方式
       const mergedShortcuts = this.mergeShortcuts(localShortcuts, remoteShortcuts || [], now)
@@ -529,13 +531,18 @@ class StorageManager {
       // 合并待办事项
       const mergedTodos = this.mergeTodos(localTodos, remoteTodos || [], now)
 
+      // 合并操作日志
+      const mergedLogs = this.mergeOperationLogs(localLogs, remoteLogs || [])
+
       // 保存合并后的数据
       await this.set('shortcuts', mergedShortcuts)
       await this.set('todos', mergedTodos)
+      await this.set('operation_logs', mergedLogs)
 
       console.log('[Storage] 同步完成')
       console.log('[Storage] 快捷方式: 本地', localShortcuts.length, '远程', remoteShortcuts?.length || 0, '合并后', mergedShortcuts.length)
       console.log('[Storage] 待办事项: 本地', localTodos.length, '远程', remoteTodos?.length || 0, '合并后', mergedTodos.length)
+      console.log('[Storage] 操作日志: 本地', localLogs.length, '远程', remoteLogs?.length || 0, '合并后', mergedLogs.length)
 
       return {
         shortcuts: {
@@ -547,6 +554,11 @@ class StorageManager {
           local: localTodos.length,
           remote: remoteTodos?.length || 0,
           merged: mergedTodos.length
+        },
+        logs: {
+          local: localLogs.length,
+          remote: remoteLogs?.length || 0,
+          merged: mergedLogs.length
         }
       }
     } catch (error) {
@@ -557,11 +569,12 @@ class StorageManager {
 
   /**
    * 合并快捷方式数据
+   * 使用软删除策略：删除操作标记 deleted: true，合并时比较 deletedAt 时间戳
    */
   mergeShortcuts(local, remote, now) {
     const mergedMap = new Map()
 
-    // 先添加本地数据
+    // 先添加本地数据（包括已删除的）
     local.forEach(item => {
       mergedMap.set(item.id, {
         ...item,
@@ -574,40 +587,95 @@ class StorageManager {
       const localItem = mergedMap.get(item.id)
       
       if (!localItem) {
-        // ID不同，直接添加
+        // 本地没有，直接添加（包括已删除的）
         mergedMap.set(item.id, {
           ...item,
           updatedAt: item.updatedAt || now
         })
       } else {
-        // ID相同，比较内容
-        const localContent = JSON.stringify({ ...localItem, updatedAt: undefined })
-        const remoteContent = JSON.stringify({ ...item, updatedAt: undefined })
+        // 两端都有，需要合并
+        const localDeleted = localItem.deleted === true
+        const remoteDeleted = item.deleted === true
         
-        if (localContent !== remoteContent) {
-          // 内容不同，比较时间戳
-          const localTime = localItem.updatedAt || 0
-          const remoteTime = item.updatedAt || 0
-          
-          if (remoteTime > localTime) {
-            // 远程更新，使用远程数据
+        if (localDeleted && remoteDeleted) {
+          // 两端都删除了，比较删除时间，保留最新的删除状态
+          const localDeletedAt = localItem.deletedAt || 0
+          const remoteDeletedAt = item.deletedAt || 0
+          if (remoteDeletedAt > localDeletedAt) {
             mergedMap.set(item.id, {
               ...item,
               updatedAt: now
             })
           } else {
-            // 本地更新，保持本地数据，但更新时间戳
             mergedMap.set(item.id, {
               ...localItem,
               updatedAt: now
             })
           }
+        } else if (localDeleted && !remoteDeleted) {
+          // 本地删除了，远程没删除，比较删除时间和更新时间
+          const localDeletedAt = localItem.deletedAt || 0
+          const remoteUpdatedAt = item.updatedAt || 0
+          if (remoteUpdatedAt > localDeletedAt) {
+            // 远程更新比本地删除新，恢复项目
+            mergedMap.set(item.id, {
+              ...item,
+              deleted: false,
+              deletedAt: undefined,
+              updatedAt: now
+            })
+          } else {
+            // 保留删除状态
+            mergedMap.set(item.id, {
+              ...localItem,
+              updatedAt: now
+            })
+          }
+        } else if (!localDeleted && remoteDeleted) {
+          // 远程删除了，本地没删除，比较删除时间和更新时间
+          const remoteDeletedAt = item.deletedAt || 0
+          const localUpdatedAt = localItem.updatedAt || 0
+          if (localUpdatedAt > remoteDeletedAt) {
+            // 本地更新比远程删除新，保留项目
+            mergedMap.set(item.id, {
+              ...localItem,
+              updatedAt: now
+            })
+          } else {
+            // 应用删除状态
+            mergedMap.set(item.id, {
+              ...item,
+              updatedAt: now
+            })
+          }
         } else {
-          // 内容相同，保留本地版本，更新时间戳
-          mergedMap.set(item.id, {
-            ...localItem,
-            updatedAt: now
-          })
+          // 两端都没删除，正常合并内容
+          const localContent = JSON.stringify({ ...localItem, updatedAt: undefined, deleted: undefined, deletedAt: undefined })
+          const remoteContent = JSON.stringify({ ...item, updatedAt: undefined, deleted: undefined, deletedAt: undefined })
+          
+          if (localContent !== remoteContent) {
+            // 内容不同，比较时间戳
+            const localTime = localItem.updatedAt || 0
+            const remoteTime = item.updatedAt || 0
+            
+            if (remoteTime > localTime) {
+              mergedMap.set(item.id, {
+                ...item,
+                updatedAt: now
+              })
+            } else {
+              mergedMap.set(item.id, {
+                ...localItem,
+                updatedAt: now
+              })
+            }
+          } else {
+            // 内容相同，保留本地版本
+            mergedMap.set(item.id, {
+              ...localItem,
+              updatedAt: now
+            })
+          }
         }
       }
     })
@@ -617,11 +685,12 @@ class StorageManager {
 
   /**
    * 合并待办事项数据
+   * 使用软删除策略：删除操作标记 deleted: true，合并时比较 deletedAt 时间戳
    */
   mergeTodos(local, remote, now) {
     const mergedMap = new Map()
 
-    // 先添加本地数据
+    // 先添加本地数据（包括已删除的）
     local.forEach(item => {
       mergedMap.set(item.id, {
         ...item,
@@ -634,45 +703,133 @@ class StorageManager {
       const localItem = mergedMap.get(item.id)
       
       if (!localItem) {
-        // ID不同，直接添加
+        // 本地没有，直接添加（包括已删除的）
         mergedMap.set(item.id, {
           ...item,
           updatedAt: item.updatedAt || now
         })
       } else {
-        // ID相同，比较内容
-        const localContent = JSON.stringify({ ...localItem, updatedAt: undefined })
-        const remoteContent = JSON.stringify({ ...item, updatedAt: undefined })
+        // 两端都有，需要合并
+        const localDeleted = localItem.deleted === true
+        const remoteDeleted = item.deleted === true
         
-        if (localContent !== remoteContent) {
-          // 内容不同，比较时间戳
-          const localTime = localItem.updatedAt || 0
-          const remoteTime = item.updatedAt || 0
-          
-          if (remoteTime > localTime) {
-            // 远程更新，使用远程数据
+        if (localDeleted && remoteDeleted) {
+          // 两端都删除了，比较删除时间，保留最新的删除状态
+          const localDeletedAt = localItem.deletedAt || 0
+          const remoteDeletedAt = item.deletedAt || 0
+          if (remoteDeletedAt > localDeletedAt) {
             mergedMap.set(item.id, {
               ...item,
               updatedAt: now
             })
           } else {
-            // 本地更新，保持本地数据，但更新时间戳
             mergedMap.set(item.id, {
               ...localItem,
               updatedAt: now
             })
           }
+        } else if (localDeleted && !remoteDeleted) {
+          // 本地删除了，远程没删除，比较删除时间和更新时间
+          const localDeletedAt = localItem.deletedAt || 0
+          const remoteUpdatedAt = item.updatedAt || 0
+          if (remoteUpdatedAt > localDeletedAt) {
+            // 远程更新比本地删除新，恢复待办
+            mergedMap.set(item.id, {
+              ...item,
+              deleted: false,
+              deletedAt: undefined,
+              updatedAt: now
+            })
+          } else {
+            // 保留删除状态
+            mergedMap.set(item.id, {
+              ...localItem,
+              updatedAt: now
+            })
+          }
+        } else if (!localDeleted && remoteDeleted) {
+          // 远程删除了，本地没删除，比较删除时间和更新时间
+          const remoteDeletedAt = item.deletedAt || 0
+          const localUpdatedAt = localItem.updatedAt || 0
+          if (localUpdatedAt > remoteDeletedAt) {
+            // 本地更新比远程删除新，保留待办
+            mergedMap.set(item.id, {
+              ...localItem,
+              updatedAt: now
+            })
+          } else {
+            // 应用删除状态
+            mergedMap.set(item.id, {
+              ...item,
+              updatedAt: now
+            })
+          }
         } else {
-          // 内容相同，保留本地版本，更新时间戳
-          mergedMap.set(item.id, {
-            ...localItem,
-            updatedAt: now
-          })
+          // 两端都没删除，正常合并内容
+          const localContent = JSON.stringify({ ...localItem, updatedAt: undefined, deleted: undefined, deletedAt: undefined })
+          const remoteContent = JSON.stringify({ ...item, updatedAt: undefined, deleted: undefined, deletedAt: undefined })
+          
+          if (localContent !== remoteContent) {
+            // 内容不同，比较时间戳
+            const localTime = localItem.updatedAt || 0
+            const remoteTime = item.updatedAt || 0
+            
+            if (remoteTime > localTime) {
+              mergedMap.set(item.id, {
+                ...item,
+                updatedAt: now
+              })
+            } else {
+              mergedMap.set(item.id, {
+                ...localItem,
+                updatedAt: now
+              })
+            }
+          } else {
+            // 内容相同，保留本地版本
+            mergedMap.set(item.id, {
+              ...localItem,
+              updatedAt: now
+            })
+          }
         }
       }
     })
 
     return Array.from(mergedMap.values())
+  }
+
+  /**
+   * 合并操作日志数据
+   * 操作日志采用追加式合并：按时间戳排序，去重（基于id），保留最新的1000条
+   */
+  mergeOperationLogs(local, remote) {
+    const MAX_LOG_ENTRIES = 1000
+    const logMap = new Map()
+
+    // 先添加本地日志
+    local.forEach(log => {
+      if (log.id) {
+        logMap.set(log.id, log)
+      }
+    })
+
+    // 添加远程日志（如果ID不存在或时间戳更新）
+    remote.forEach(log => {
+      if (log.id) {
+        const existingLog = logMap.get(log.id)
+        if (!existingLog || (log.timestamp && log.timestamp > (existingLog.timestamp || 0))) {
+          logMap.set(log.id, log)
+        }
+      }
+    })
+
+    // 转换为数组并按时间戳降序排序
+    const mergedLogs = Array.from(logMap.values())
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, MAX_LOG_ENTRIES)
+
+    return mergedLogs
   }
 
   /**

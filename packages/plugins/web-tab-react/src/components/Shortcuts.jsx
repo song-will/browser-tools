@@ -42,6 +42,20 @@ export default function Shortcuts() {
   }, [])
 
   useEffect(() => {
+    // 监听数据同步事件
+    const handleDataSynced = () => {
+      console.log('[Shortcuts] 收到数据同步事件，重新加载数据')
+      loadShortcuts()
+    }
+    
+    window.addEventListener('dataSynced', handleDataSynced)
+    
+    return () => {
+      window.removeEventListener('dataSynced', handleDataSynced)
+    }
+  }, [])
+
+  useEffect(() => {
     const scrollElement = scrollRef.current
     if (!scrollElement) return
 
@@ -69,7 +83,9 @@ export default function Shortcuts() {
       await storageManager.init()
       const saved = await storageManager.get('shortcuts')
       if (saved && Array.isArray(saved) && saved.length > 0) {
-        setShortcuts(saved)
+        // 过滤掉已删除的项目（软删除）
+        const activeShortcuts = saved.filter(item => !item.deleted)
+        setShortcuts(activeShortcuts)
       } else {
         setShortcuts(defaultShortcuts)
         await storageManager.set('shortcuts', defaultShortcuts)
@@ -86,11 +102,12 @@ export default function Shortcuts() {
     try {
       const now = Date.now()
       // 为所有快捷方式和组添加/更新 updatedAt 字段
+      // 注意：保留已删除的项目（软删除），但显示时过滤
       const shortcutsWithTimestamp = newShortcuts.map(s => {
         if (s.isGroup) {
           return {
             ...s,
-            updatedAt: now,
+            updatedAt: s.updatedAt || now,
             items: s.items.map(item => ({
               ...item,
               updatedAt: item.updatedAt || now
@@ -103,7 +120,9 @@ export default function Shortcuts() {
         }
       })
       await storageManager.set('shortcuts', shortcutsWithTimestamp)
-      setShortcuts(shortcutsWithTimestamp)
+      // 显示时过滤掉已删除的项目
+      const activeShortcuts = shortcutsWithTimestamp.filter(item => !item.deleted)
+      setShortcuts(activeShortcuts)
     } catch (error) {
       console.error('[Shortcuts] Save error:', error)
     }
@@ -127,7 +146,13 @@ export default function Shortcuts() {
 
   const handleDelete = async (id) => {
     const deletedItem = shortcuts.find(s => s.id === id)
-    const newShortcuts = shortcuts.filter(s => s.id !== id)
+    // 软删除：标记为已删除，而不是直接移除
+    const now = Date.now()
+    const newShortcuts = shortcuts.map(s => 
+      s.id === id 
+        ? { ...s, deleted: true, deletedAt: now, updatedAt: now }
+        : s
+    )
     await saveShortcuts(newShortcuts)
     
     if (deletedItem) {
@@ -143,21 +168,28 @@ export default function Shortcuts() {
   const handleDeleteFromGroup = async (groupId, itemId) => {
     const group = shortcuts.find(s => s.id === groupId && s.isGroup)
     const deletedItem = group?.items.find(item => item.id === itemId)
+    const now = Date.now()
     
     const newShortcuts = shortcuts.map(s => {
       if (s.id === groupId && s.isGroup) {
-        const newItems = s.items.filter(item => item.id !== itemId)
+        // 软删除：标记组内项目为已删除
+        const newItems = s.items.map(item => 
+          item.id === itemId 
+            ? { ...item, deleted: true, deletedAt: now, updatedAt: now }
+            : item
+        ).filter(item => !item.deleted) // 过滤掉已删除的项目
+        
         if (newItems.length === 1) {
           // 如果组里只剩一个，就变成单个快捷方式
           return newItems[0]
         } else if (newItems.length === 0) {
           // 如果组里没有项目了，删除整个组
-          return null
+          return { ...s, deleted: true, deletedAt: now, updatedAt: now }
         }
-        return { ...s, items: newItems }
+        return { ...s, items: newItems, updatedAt: now }
       }
       return s
-    }).filter(Boolean)
+    }).filter(s => !s.deleted) // 过滤掉已删除的组
     await saveShortcuts(newShortcuts)
     
     if (deletedItem) {
@@ -326,21 +358,28 @@ export default function Shortcuts() {
       const group = shortcuts.find(s => s.id === draggedFromGroup.groupId)
       if (group && group.isGroup) {
         draggedItem = group.items.find(item => item.id === draggedFromGroup.itemId)
-        // 先从组中移除
+        // 先从组中软删除
+        const now = Date.now()
         newShortcuts = newShortcuts.map(s => {
           if (s.id === draggedFromGroup.groupId && s.isGroup) {
-            const newItems = s.items.filter(item => item.id !== draggedFromGroup.itemId)
+            // 软删除组内项目
+            const newItems = s.items.map(item => 
+              item.id === draggedFromGroup.itemId
+                ? { ...item, deleted: true, deletedAt: now, updatedAt: now }
+                : item
+            ).filter(item => !item.deleted) // 过滤掉已删除的
+            
             if (newItems.length === 1) {
               // 如果组里只剩一个，就变成单个快捷方式
               return newItems[0]
             } else if (newItems.length === 0) {
               // 如果组里没有项目了，删除整个组
-              return null
+              return { ...s, deleted: true, deletedAt: now, updatedAt: now }
             }
-            return { ...s, items: newItems }
+            return { ...s, items: newItems, updatedAt: now }
           }
           return s
-        }).filter(Boolean)
+        }).filter(s => !s.deleted) // 过滤掉已删除的组
       }
     } else {
       draggedItem = shortcuts.find(s => s.id === draggedId)
@@ -369,9 +408,14 @@ export default function Shortcuts() {
         }
         return s
       })
-      // 如果不是从组中拖出的，需要移除原来的快捷方式
+      // 如果不是从组中拖出的，需要软删除原来的快捷方式
       if (!draggedFromGroup) {
-        newShortcuts = newShortcuts.filter(s => s.id !== draggedId)
+        const now = Date.now()
+        newShortcuts = newShortcuts.map(s => 
+          s.id === draggedId
+            ? { ...s, deleted: true, deletedAt: now, updatedAt: now }
+            : s
+        ).filter(s => !s.deleted)
       }
       await saveShortcuts(newShortcuts)
       await logOperation('add_to_group', {
@@ -396,9 +440,14 @@ export default function Shortcuts() {
         }
         return s
       })
-      // 如果不是从组中拖出的，需要移除原来的快捷方式
+      // 如果不是从组中拖出的，需要软删除原来的快捷方式
       if (!draggedFromGroup) {
-        newShortcuts = newShortcuts.filter(s => s.id !== draggedId)
+        const now = Date.now()
+        newShortcuts = newShortcuts.map(s => 
+          s.id === draggedId
+            ? { ...s, deleted: true, deletedAt: now, updatedAt: now }
+            : s
+        ).filter(s => !s.deleted)
       }
       await saveShortcuts(newShortcuts)
       await logOperation('create_group', {
@@ -809,18 +858,25 @@ export default function Shortcuts() {
                 if (group && group.isGroup) {
                   const draggedItem = group.items.find(item => item.id === draggedFromGroup.itemId)
                   if (draggedItem) {
+                    const now = Date.now()
                     const newShortcuts = shortcuts.map(s => {
                       if (s.id === draggedFromGroup.groupId && s.isGroup) {
-                        const newItems = s.items.filter(item => item.id !== draggedFromGroup.itemId)
+                        // 软删除组内项目
+                        const newItems = s.items.map(item => 
+                          item.id === draggedFromGroup.itemId
+                            ? { ...item, deleted: true, deletedAt: now, updatedAt: now }
+                            : item
+                        ).filter(item => !item.deleted)
+                        
                         if (newItems.length === 1) {
                           return newItems[0]
                         } else if (newItems.length === 0) {
-                          return null
+                          return { ...s, deleted: true, deletedAt: now, updatedAt: now }
                         }
-                        return { ...s, items: newItems }
+                        return { ...s, items: newItems, updatedAt: now }
                       }
                       return s
-                    }).filter(Boolean)
+                    }).filter(s => !s.deleted)
                     
                     // 添加到主列表
                     const draggedItemWithId = { ...draggedItem, id: draggedItem.id || uuidv4() }

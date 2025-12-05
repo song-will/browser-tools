@@ -21,6 +21,20 @@ export default function TodoList() {
   }, [])
 
   useEffect(() => {
+    // 监听数据同步事件
+    const handleDataSynced = () => {
+      console.log('[TodoList] 收到数据同步事件，重新加载数据')
+      loadTodos()
+    }
+    
+    window.addEventListener('dataSynced', handleDataSynced)
+    
+    return () => {
+      window.removeEventListener('dataSynced', handleDataSynced)
+    }
+  }, [])
+
+  useEffect(() => {
     const scrollElement = scrollRef.current
     if (!scrollElement) return
 
@@ -48,7 +62,9 @@ export default function TodoList() {
       await storageManager.init()
       const saved = await storageManager.get('todos')
       if (saved && Array.isArray(saved)) {
-        setTodos(saved)
+        // 过滤掉已删除的待办（软删除）
+        const activeTodos = saved.filter(todo => !todo.deleted)
+        setTodos(activeTodos)
       } else {
         setTodos([])
       }
@@ -64,12 +80,15 @@ export default function TodoList() {
     try {
       const now = Date.now()
       // 为所有待办添加/更新 updatedAt 字段
+      // 注意：保留已删除的待办（软删除），但显示时过滤
       const todosWithTimestamp = newTodos.map(todo => ({
         ...todo,
         updatedAt: todo.updatedAt || now
       }))
       await storageManager.set('todos', todosWithTimestamp)
-      setTodos(todosWithTimestamp)
+      // 显示时过滤掉已删除的待办
+      const activeTodos = todosWithTimestamp.filter(todo => !todo.deleted)
+      setTodos(activeTodos)
     } catch (error) {
       console.error('[TodoList] Save error:', error)
     }
@@ -115,7 +134,13 @@ export default function TodoList() {
 
   const handleDelete = async (id) => {
     const deletedTodo = todos.find(todo => todo.id === id)
-    const newTodos = todos.filter(todo => todo.id !== id)
+    // 软删除：标记为已删除，而不是直接移除
+    const now = Date.now()
+    const newTodos = todos.map(todo =>
+      todo.id === id
+        ? { ...todo, deleted: true, deletedAt: now, updatedAt: now }
+        : todo
+    )
     await saveTodos(newTodos)
     
     if (deletedTodo) {

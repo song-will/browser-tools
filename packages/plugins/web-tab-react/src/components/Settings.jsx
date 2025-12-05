@@ -140,9 +140,14 @@ export default function Settings({ isOpen, onClose }) {
     setSyncing(true)
     try {
       const result = await storageManager.syncFromGithub()
-      message.success(`同步成功！快捷方式: ${result.shortcuts.merged} 条，待办事项: ${result.todos.merged} 条`)
+      const logInfo = result.logs ? `，操作日志: ${result.logs.merged} 条` : ''
+      message.success(`同步成功！快捷方式: ${result.shortcuts.merged} 条，待办事项: ${result.todos.merged} 条${logInfo}`)
       // 触发页面刷新（通过事件）
       window.dispatchEvent(new CustomEvent('dataSynced'))
+      // 如果当前在日志标签页，刷新日志列表
+      if (activeTab === 'logs') {
+        await loadOperationLogs()
+      }
     } catch (error) {
       console.error('[Settings] Sync error:', error)
       message.error('同步失败: ' + error.message)
