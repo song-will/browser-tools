@@ -2,6 +2,241 @@
 /* global chrome */
 
 /**
+ * Chrome Storage API 操作辅助函数
+ */
+function chromeStorageOperation(operation, arg) {
+  return new Promise((resolve, reject) => {
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      const callback = (result) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError)
+        } else {
+          resolve(result)
+        }
+      }
+
+      switch (operation) {
+        case 'get':
+          chrome.storage.local.get(arg, callback)
+          break
+        case 'getAll':
+          chrome.storage.local.get(null, callback)
+          break
+        case 'set':
+          chrome.storage.local.set(arg, callback)
+          break
+        case 'remove':
+          chrome.storage.local.remove(arg, callback)
+          break
+        case 'clear':
+          chrome.storage.local.clear(callback)
+          break
+        default:
+          reject(new Error(`Unknown operation: ${operation}`))
+      }
+    } else {
+      // 降级到 localStorage
+      try {
+        let result
+        switch (operation) {
+          case 'get': {
+            const keys = arg
+            result = {}
+            keys.forEach(key => {
+              const value = localStorage.getItem(key)
+              result[key] = value ? JSON.parse(value) : null
+            })
+            break
+          }
+          case 'getAll': {
+            result = {}
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i)
+              if (key) {
+                try {
+                  result[key] = JSON.parse(localStorage.getItem(key))
+                } catch {
+                  result[key] = localStorage.getItem(key)
+                }
+              }
+            }
+            break
+          }
+          case 'set': {
+            const data = arg
+            Object.entries(data).forEach(([k, v]) => {
+              localStorage.setItem(k, JSON.stringify(v))
+            })
+            result = undefined
+            break
+          }
+          case 'remove': {
+            const keys = arg
+            keys.forEach(k => localStorage.removeItem(k))
+            result = undefined
+            break
+          }
+          case 'clear':
+            localStorage.clear()
+            result = undefined
+            break
+          default:
+            throw new Error(`Unknown operation: ${operation}`)
+        }
+        resolve(result)
+      } catch (error) {
+        reject(error)
+      }
+    }
+  })
+}
+
+/**
+ * GitHub Gist API 请求辅助函数
+ */
+async function gistApiRequest(url, options = {}) {
+  const { token, method = 'GET', body } = options
+  const headers = {
+    'Authorization': `token ${token}`,
+    'Accept': 'application/vnd.github.v3+json',
+    ...(body && { 'Content-Type': 'application/json' })
+  }
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    ...(body && { body: JSON.stringify(body) })
+  })
+
+  if (!response.ok) {
+    throw new Error(`GitHub API request failed: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * 合并两个已删除项目的逻辑
+ */
+function mergeBothDeleted(localItem, remoteItem, now) {
+  const localDeletedAt = localItem.deletedAt || 0
+  const remoteDeletedAt = remoteItem.deletedAt || 0
+  return remoteDeletedAt > localDeletedAt
+    ? { ...remoteItem, updatedAt: now }
+    : { ...localItem, updatedAt: now }
+}
+
+/**
+ * 合并本地删除、远程未删除的逻辑
+ */
+function mergeLocalDeleted(localItem, remoteItem, now) {
+  const localDeletedAt = localItem.deletedAt || 0
+  const remoteUpdatedAt = remoteItem.updatedAt || 0
+  if (remoteUpdatedAt > localDeletedAt) {
+    // 远程更新比本地删除新，恢复项目
+    return {
+      ...remoteItem,
+      deleted: false,
+      deletedAt: undefined,
+      updatedAt: now
+    }
+  }
+  // 保留删除状态
+  return { ...localItem, updatedAt: now }
+}
+
+/**
+ * 合并远程删除、本地未删除的逻辑
+ */
+function mergeRemoteDeleted(localItem, remoteItem, now) {
+  const remoteDeletedAt = remoteItem.deletedAt || 0
+  const localUpdatedAt = localItem.updatedAt || 0
+  if (localUpdatedAt > remoteDeletedAt) {
+    // 本地更新比远程删除新，保留项目
+    return { ...localItem, updatedAt: now }
+  }
+  // 应用删除状态
+  return { ...remoteItem, updatedAt: now }
+}
+
+/**
+ * 合并两端都未删除的逻辑
+ */
+function mergeBothActive(localItem, remoteItem, now) {
+  // 比较内容（排除时间戳和删除标记）
+  const localContent = JSON.stringify({
+    ...localItem,
+    updatedAt: undefined,
+    deleted: undefined,
+    deletedAt: undefined
+  })
+  const remoteContent = JSON.stringify({
+    ...remoteItem,
+    updatedAt: undefined,
+    deleted: undefined,
+    deletedAt: undefined
+  })
+
+  if (localContent !== remoteContent) {
+    // 内容不同，比较时间戳
+    const localTime = localItem.updatedAt || 0
+    const remoteTime = remoteItem.updatedAt || 0
+    return remoteTime > localTime
+      ? { ...remoteItem, updatedAt: now }
+      : { ...localItem, updatedAt: now }
+  }
+  // 内容相同，保留本地版本
+  return { ...localItem, updatedAt: now }
+}
+
+/**
+ * 通用合并函数：合并使用软删除策略的数据数组
+ */
+function mergeSoftDeletedItems(local, remote, now) {
+  const mergedMap = new Map()
+
+  // 先添加本地数据（包括已删除的）
+  local.forEach(item => {
+    mergedMap.set(item.id, {
+      ...item,
+      updatedAt: item.updatedAt || now
+    })
+  })
+
+  // 合并远程数据
+  remote.forEach(item => {
+    const localItem = mergedMap.get(item.id)
+
+    if (!localItem) {
+      // 本地没有，直接添加（包括已删除的）
+      mergedMap.set(item.id, {
+        ...item,
+        updatedAt: item.updatedAt || now
+      })
+    } else {
+      // 两端都有，需要合并
+      const localDeleted = localItem.deleted === true
+      const remoteDeleted = item.deleted === true
+
+      let mergedItem
+      if (localDeleted && remoteDeleted) {
+        mergedItem = mergeBothDeleted(localItem, item, now)
+      } else if (localDeleted && !remoteDeleted) {
+        mergedItem = mergeLocalDeleted(localItem, item, now)
+      } else if (!localDeleted && remoteDeleted) {
+        mergedItem = mergeRemoteDeleted(localItem, item, now)
+      } else {
+        mergedItem = mergeBothActive(localItem, item, now)
+      }
+
+      mergedMap.set(item.id, mergedItem)
+    }
+  })
+
+  return Array.from(mergedMap.values())
+}
+
+/**
  * 存储策略抽象接口
  */
 class StorageStrategy {
@@ -30,126 +265,28 @@ class StorageStrategy {
  */
 class ChromeStorageStrategy extends StorageStrategy {
   async get(key) {
-    return new Promise((resolve, reject) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get([key], (result) => {
-          if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError)
-          } else {
-            resolve(result[key] || null)
-          }
-        })
-      } else {
-        // 降级到 localStorage
-        try {
-          const value = localStorage.getItem(key)
-          resolve(value ? JSON.parse(value) : null)
-        } catch (error) {
-          reject(error)
-        }
-      }
-    })
+    const result = await chromeStorageOperation('get', [key])
+    return result[key] || null
   }
 
   async set(key, value) {
-    return new Promise((resolve, reject) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.set({ [key]: value }, () => {
-          if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError)
-          } else {
-            resolve()
-          }
-        })
-      } else {
-        // 降级到 localStorage
-        try {
-          localStorage.setItem(key, JSON.stringify(value))
-          resolve()
-        } catch (error) {
-          reject(error)
-        }
-      }
-    })
+    await chromeStorageOperation('set', { [key]: value })
   }
 
   async remove(key) {
-    return new Promise((resolve, reject) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.remove([key], () => {
-          if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError)
-          } else {
-            resolve()
-          }
-        })
-      } else {
-        // 降级到 localStorage
-        try {
-          localStorage.removeItem(key)
-          resolve()
-        } catch (error) {
-          reject(error)
-        }
-      }
-    })
+    await chromeStorageOperation('remove', [key])
   }
 
   async clear() {
-    return new Promise((resolve, reject) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.clear(() => {
-          if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError)
-          } else {
-            resolve()
-          }
-        })
-      } else {
-        // 降级到 localStorage
-        try {
-          localStorage.clear()
-          resolve()
-        } catch (error) {
-          reject(error)
-        }
-      }
-    })
+    await chromeStorageOperation('clear')
   }
 
   /**
    * 获取所有存储的键值对
    */
   async getAll() {
-    return new Promise((resolve, reject) => {
-      if (typeof chrome !== 'undefined' && chrome.storage) {
-        chrome.storage.local.get(null, (result) => {
-          if (chrome.runtime.lastError) {
-            reject(chrome.runtime.lastError)
-          } else {
-            resolve(result || {})
-          }
-        })
-      } else {
-        // 降级到 localStorage
-        try {
-          const allData = {}
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i)
-            if (key) {
-              try {
-                allData[key] = JSON.parse(localStorage.getItem(key))
-              } catch {
-                allData[key] = localStorage.getItem(key)
-              }
-            }
-          }
-          resolve(allData)
-        } catch (error) {
-          reject(error)
-        }
-      }
-    })
+    const result = await chromeStorageOperation('getAll')
+    return result || {}
   }
 }
 
@@ -170,18 +307,9 @@ class GitHubGistStrategy extends StorageStrategy {
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/${this.gistId}`, {
-        headers: {
-          'Authorization': `token ${this.token}`,
-          'Accept': 'application/vnd.github.v3+json'
-        }
+      const gist = await gistApiRequest(`${this.baseUrl}/${this.gistId}`, {
+        token: this.token
       })
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch gist: ${response.statusText}`)
-      }
-
-      const gist = await response.json()
       const file = gist.files[key] || gist.files['data.json']
       
       if (!file) {
@@ -206,43 +334,23 @@ class GitHubGistStrategy extends StorageStrategy {
 
       if (this.gistId) {
         // 更新现有 gist
-        const response = await fetch(`${this.baseUrl}/${this.gistId}`, {
+        const gist = await gistApiRequest(`${this.baseUrl}/${this.gistId}`, {
+          token: this.token,
           method: 'PATCH',
-          headers: {
-            'Authorization': `token ${this.token}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ files })
+          body: { files }
         })
-
-        if (!response.ok) {
-          throw new Error(`Failed to update gist: ${response.statusText}`)
-        }
-
-        const gist = await response.json()
         this.gistId = gist.id
       } else {
         // 创建新 gist
-        const response = await fetch(this.baseUrl, {
+        const gist = await gistApiRequest(this.baseUrl, {
+          token: this.token,
           method: 'POST',
-          headers: {
-            'Authorization': `token ${this.token}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
+          body: {
             description: 'WebTab shortcuts storage',
             public: false,
             files
-          })
+          }
         })
-
-        if (!response.ok) {
-          throw new Error(`Failed to create gist: ${response.statusText}`)
-        }
-
-        const gist = await response.json()
         this.gistId = gist.id
       }
 
@@ -260,21 +368,13 @@ class GitHubGistStrategy extends StorageStrategy {
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/${this.gistId}`, {
+      await gistApiRequest(`${this.baseUrl}/${this.gistId}`, {
+        token: this.token,
         method: 'PATCH',
-        headers: {
-          'Authorization': `token ${this.token}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
+        body: {
           files: { [key]: null }
-        })
+        }
       })
-
-      if (!response.ok) {
-        throw new Error(`Failed to remove from gist: ${response.statusText}`)
-      }
     } catch (error) {
       console.error('[Storage] GitHub Gist remove error:', error)
       // 不抛出错误，只记录日志
@@ -287,21 +387,13 @@ class GitHubGistStrategy extends StorageStrategy {
     }
 
     try {
-      const response = await fetch(`${this.baseUrl}/${this.gistId}`, {
+      await gistApiRequest(`${this.baseUrl}/${this.gistId}`, {
+        token: this.token,
         method: 'PATCH',
-        headers: {
-          'Authorization': `token ${this.token}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
+        body: {
           files: {}
-        })
+        }
       })
-
-      if (!response.ok) {
-        throw new Error(`Failed to clear gist: ${response.statusText}`)
-      }
     } catch (error) {
       console.error('[Storage] GitHub Gist clear error:', error)
       // 不抛出错误，只记录日志
@@ -526,10 +618,10 @@ class StorageManager {
       const localLogs = await this.get('operation_logs') || []
 
       // 合并快捷方式
-      const mergedShortcuts = this.mergeShortcuts(localShortcuts, remoteShortcuts || [], now)
+      const mergedShortcuts = mergeSoftDeletedItems(localShortcuts, remoteShortcuts || [], now)
       
       // 合并待办事项
-      const mergedTodos = this.mergeTodos(localTodos, remoteTodos || [], now)
+      const mergedTodos = mergeSoftDeletedItems(localTodos, remoteTodos || [], now)
 
       // 合并操作日志
       const mergedLogs = this.mergeOperationLogs(localLogs, remoteLogs || [])
@@ -567,237 +659,6 @@ class StorageManager {
     }
   }
 
-  /**
-   * 合并快捷方式数据
-   * 使用软删除策略：删除操作标记 deleted: true，合并时比较 deletedAt 时间戳
-   */
-  mergeShortcuts(local, remote, now) {
-    const mergedMap = new Map()
-
-    // 先添加本地数据（包括已删除的）
-    local.forEach(item => {
-      mergedMap.set(item.id, {
-        ...item,
-        updatedAt: item.updatedAt || now
-      })
-    })
-
-    // 合并远程数据
-    remote.forEach(item => {
-      const localItem = mergedMap.get(item.id)
-      
-      if (!localItem) {
-        // 本地没有，直接添加（包括已删除的）
-        mergedMap.set(item.id, {
-          ...item,
-          updatedAt: item.updatedAt || now
-        })
-      } else {
-        // 两端都有，需要合并
-        const localDeleted = localItem.deleted === true
-        const remoteDeleted = item.deleted === true
-        
-        if (localDeleted && remoteDeleted) {
-          // 两端都删除了，比较删除时间，保留最新的删除状态
-          const localDeletedAt = localItem.deletedAt || 0
-          const remoteDeletedAt = item.deletedAt || 0
-          if (remoteDeletedAt > localDeletedAt) {
-            mergedMap.set(item.id, {
-              ...item,
-              updatedAt: now
-            })
-          } else {
-            mergedMap.set(item.id, {
-              ...localItem,
-              updatedAt: now
-            })
-          }
-        } else if (localDeleted && !remoteDeleted) {
-          // 本地删除了，远程没删除，比较删除时间和更新时间
-          const localDeletedAt = localItem.deletedAt || 0
-          const remoteUpdatedAt = item.updatedAt || 0
-          if (remoteUpdatedAt > localDeletedAt) {
-            // 远程更新比本地删除新，恢复项目
-            mergedMap.set(item.id, {
-              ...item,
-              deleted: false,
-              deletedAt: undefined,
-              updatedAt: now
-            })
-          } else {
-            // 保留删除状态
-            mergedMap.set(item.id, {
-              ...localItem,
-              updatedAt: now
-            })
-          }
-        } else if (!localDeleted && remoteDeleted) {
-          // 远程删除了，本地没删除，比较删除时间和更新时间
-          const remoteDeletedAt = item.deletedAt || 0
-          const localUpdatedAt = localItem.updatedAt || 0
-          if (localUpdatedAt > remoteDeletedAt) {
-            // 本地更新比远程删除新，保留项目
-            mergedMap.set(item.id, {
-              ...localItem,
-              updatedAt: now
-            })
-          } else {
-            // 应用删除状态
-            mergedMap.set(item.id, {
-              ...item,
-              updatedAt: now
-            })
-          }
-        } else {
-          // 两端都没删除，正常合并内容
-          const localContent = JSON.stringify({ ...localItem, updatedAt: undefined, deleted: undefined, deletedAt: undefined })
-          const remoteContent = JSON.stringify({ ...item, updatedAt: undefined, deleted: undefined, deletedAt: undefined })
-          
-          if (localContent !== remoteContent) {
-            // 内容不同，比较时间戳
-            const localTime = localItem.updatedAt || 0
-            const remoteTime = item.updatedAt || 0
-            
-            if (remoteTime > localTime) {
-              mergedMap.set(item.id, {
-                ...item,
-                updatedAt: now
-              })
-            } else {
-              mergedMap.set(item.id, {
-                ...localItem,
-                updatedAt: now
-              })
-            }
-          } else {
-            // 内容相同，保留本地版本
-            mergedMap.set(item.id, {
-              ...localItem,
-              updatedAt: now
-            })
-          }
-        }
-      }
-    })
-
-    return Array.from(mergedMap.values())
-  }
-
-  /**
-   * 合并待办事项数据
-   * 使用软删除策略：删除操作标记 deleted: true，合并时比较 deletedAt 时间戳
-   */
-  mergeTodos(local, remote, now) {
-    const mergedMap = new Map()
-
-    // 先添加本地数据（包括已删除的）
-    local.forEach(item => {
-      mergedMap.set(item.id, {
-        ...item,
-        updatedAt: item.updatedAt || now
-      })
-    })
-
-    // 合并远程数据
-    remote.forEach(item => {
-      const localItem = mergedMap.get(item.id)
-      
-      if (!localItem) {
-        // 本地没有，直接添加（包括已删除的）
-        mergedMap.set(item.id, {
-          ...item,
-          updatedAt: item.updatedAt || now
-        })
-      } else {
-        // 两端都有，需要合并
-        const localDeleted = localItem.deleted === true
-        const remoteDeleted = item.deleted === true
-        
-        if (localDeleted && remoteDeleted) {
-          // 两端都删除了，比较删除时间，保留最新的删除状态
-          const localDeletedAt = localItem.deletedAt || 0
-          const remoteDeletedAt = item.deletedAt || 0
-          if (remoteDeletedAt > localDeletedAt) {
-            mergedMap.set(item.id, {
-              ...item,
-              updatedAt: now
-            })
-          } else {
-            mergedMap.set(item.id, {
-              ...localItem,
-              updatedAt: now
-            })
-          }
-        } else if (localDeleted && !remoteDeleted) {
-          // 本地删除了，远程没删除，比较删除时间和更新时间
-          const localDeletedAt = localItem.deletedAt || 0
-          const remoteUpdatedAt = item.updatedAt || 0
-          if (remoteUpdatedAt > localDeletedAt) {
-            // 远程更新比本地删除新，恢复待办
-            mergedMap.set(item.id, {
-              ...item,
-              deleted: false,
-              deletedAt: undefined,
-              updatedAt: now
-            })
-          } else {
-            // 保留删除状态
-            mergedMap.set(item.id, {
-              ...localItem,
-              updatedAt: now
-            })
-          }
-        } else if (!localDeleted && remoteDeleted) {
-          // 远程删除了，本地没删除，比较删除时间和更新时间
-          const remoteDeletedAt = item.deletedAt || 0
-          const localUpdatedAt = localItem.updatedAt || 0
-          if (localUpdatedAt > remoteDeletedAt) {
-            // 本地更新比远程删除新，保留待办
-            mergedMap.set(item.id, {
-              ...localItem,
-              updatedAt: now
-            })
-          } else {
-            // 应用删除状态
-            mergedMap.set(item.id, {
-              ...item,
-              updatedAt: now
-            })
-          }
-        } else {
-          // 两端都没删除，正常合并内容
-          const localContent = JSON.stringify({ ...localItem, updatedAt: undefined, deleted: undefined, deletedAt: undefined })
-          const remoteContent = JSON.stringify({ ...item, updatedAt: undefined, deleted: undefined, deletedAt: undefined })
-          
-          if (localContent !== remoteContent) {
-            // 内容不同，比较时间戳
-            const localTime = localItem.updatedAt || 0
-            const remoteTime = item.updatedAt || 0
-            
-            if (remoteTime > localTime) {
-              mergedMap.set(item.id, {
-                ...item,
-                updatedAt: now
-              })
-            } else {
-              mergedMap.set(item.id, {
-                ...localItem,
-                updatedAt: now
-              })
-            }
-          } else {
-            // 内容相同，保留本地版本
-            mergedMap.set(item.id, {
-              ...localItem,
-              updatedAt: now
-            })
-          }
-        }
-      }
-    })
-
-    return Array.from(mergedMap.values())
-  }
 
   /**
    * 合并操作日志数据
