@@ -818,7 +818,11 @@ export default function Shortcuts() {
   return (
     <Card
       title="快捷方式"
-      className="col-span-2"
+      className="col-span-3"
+      style={{
+        height: 'fit-content',
+        alignSelf: 'start',
+      }}
       extra={
         <Button
           type="primary"
@@ -842,6 +846,7 @@ export default function Shortcuts() {
             ref={scrollRef}
             className="grid grid-cols-[repeat(auto-fit,minmax(80px,1fr))] gap-4 custom-scrollbar"
             style={{
+              height: 'fit-content',
               maxHeight: '300px',
               overflowY: 'auto',
               overflowX: 'hidden',

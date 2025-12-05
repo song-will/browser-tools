@@ -177,7 +177,7 @@ function AppContent() {
           <Header />
           <main className="flex-1 flex flex-col items-center justify-center px-5 gap-8 overflow-hidden">
             <SearchBox />
-            <div className="grid grid-cols-3 gap-5 max-w-[1000px] w-full">
+            <div className="grid grid-cols-4 gap-5 max-w-[1260px] w-full">
               <Shortcuts />
               <TodoList />
             </div>

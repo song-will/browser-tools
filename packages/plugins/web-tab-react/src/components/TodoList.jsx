@@ -196,7 +196,7 @@ export default function TodoList() {
             ref={scrollRef}
             className="custom-scrollbar"
             style={{
-              maxHeight: '300px',
+              height: '300px',
               overflowY: 'auto',
               overflowX: 'hidden',
             }}
