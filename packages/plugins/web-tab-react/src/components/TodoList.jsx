@@ -118,9 +118,19 @@ export default function TodoList() {
   const handleToggle = async (id) => {
     const todo = todos.find(t => t.id === id)
     const now = Date.now()
-    const newTodos = todos.map(t =>
-      t.id === id ? { ...t, completed: !t.completed, updatedAt: now } : t
-    )
+    const newTodos = todos.map(t => {
+      if (t.id === id) {
+        const newCompleted = !t.completed
+        return {
+          ...t,
+          completed: newCompleted,
+          updatedAt: now,
+          // 勾选时记录完成时间，取消勾选时清除完成时间
+          completedAt: newCompleted ? now : undefined
+        }
+      }
+      return t
+    })
     await saveTodos(newTodos)
     
     if (todo) {
@@ -242,7 +252,7 @@ export default function TodoList() {
                     >
                       {todo.text}
                     </div>
-                    {todo.createdAt && (
+                    {(todo.completedAt || todo.createdAt) && (
                       <div
                         style={{
                           fontSize: 11,
@@ -251,7 +261,9 @@ export default function TodoList() {
                           opacity: 0.7,
                         }}
                       >
-                        {formatTime(todo.createdAt)}
+                        {todo.completed && todo.completedAt
+                          ? `完成于 ${formatTime(todo.completedAt)}`
+                          : formatTime(todo.createdAt)}
                       </div>
                     )}
                   </div>
