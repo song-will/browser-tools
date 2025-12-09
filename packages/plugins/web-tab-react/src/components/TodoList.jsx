@@ -184,7 +184,7 @@ export default function TodoList() {
   return (
     <Card 
       title="待办事项" 
-      className="col-span-1"
+      className="flex-none w-[300px]"
       styles={{
         body: {
           display: 'flex',

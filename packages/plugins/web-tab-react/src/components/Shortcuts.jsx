@@ -818,7 +818,7 @@ export default function Shortcuts() {
   return (
     <Card
       title="快捷方式"
-      className="col-span-3"
+      className="flex-1 w-[960px] min-w-[600px]"
       style={{
         height: 'fit-content',
         alignSelf: 'start',
@@ -847,7 +847,7 @@ export default function Shortcuts() {
             className="grid grid-cols-[repeat(auto-fit,minmax(80px,1fr))] gap-4 custom-scrollbar"
             style={{
               height: 'fit-content',
-              maxHeight: '300px',
+              maxHeight: '380px',
               overflowY: 'auto',
               overflowX: 'hidden',
             }}

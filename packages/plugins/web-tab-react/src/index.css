@@ -15,7 +15,7 @@
 /* 自定义滚动条样式 */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  scrollbar-color: transparent transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -27,20 +27,18 @@
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: transparent;
   border-radius: 3px;
-  opacity: 0;
-  transition: opacity 0.3s ease 1s;
-}
-
-/* 悬停时显示滚动条 */
-.custom-scrollbar:hover::-webkit-scrollbar-thumb {
-  opacity: 1;
-  transition: opacity 0.3s ease;
+  min-height: 20px;
+  transition: background-color 0.3s ease;
 }
 
 /* 滚动时显示滚动条 */
+.custom-scrollbar.scrolling {
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
 .custom-scrollbar.scrolling::-webkit-scrollbar-thumb {
-  opacity: 1;
-  transition: opacity 0.3s ease;
+  background-color: rgba(0, 0, 0, 0.2);
+  transition: background-color 0.2s ease;
 }
